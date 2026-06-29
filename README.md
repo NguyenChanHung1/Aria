@@ -98,7 +98,27 @@ Services:
 pnpm dev:web
 ```
 
-Open [http://localhost:3000](http://localhost:3000), describe your song, and watch the pipeline progress.
+Open [http://localhost:3000](http://localhost:3000), describe your song, and watch the pipeline progress. The web app connects to the agent via Server-Sent Events and streams lyrics and instrumental previews as each LangGraph stage completes.
+
+## Web ↔ Agent connection
+
+```
+Browser (Next.js)
+  │  POST /songs              → start LangGraph pipeline
+  │  GET  /songs/{id}/events  → SSE stream (plan → lyrics → compose → mix)
+  │  GET  /songs/{id}/assets/instrumental → preview WAV while mixing runs
+  │  GET  /songs/{id}/assets/mix        → final mastered WAV
+  └  GET  /songs/{id}/assets/midi       → MIDI arrangement download
+
+Agent (LangGraph + FastAPI)
+  │  plan node    → lyrics service
+  │  lyrics node  → saves lyrics → web shows LyricsPanel
+  │  compose node → composition service → saves MIDI + instrumental preview
+  │  mixing task  → mixing service (parallel, while user listens to preview)
+  └  Redis        → project state + SSE fan-out
+```
+
+Set `NEXT_PUBLIC_AGENT_API_URL=http://localhost:8000` in `.env` for the browser to reach the agent.
 
 ## API overview
 
@@ -116,10 +136,18 @@ curl -X POST http://localhost:8000/songs \
   }'
 ```
 
-**Poll status**:
+**Stream live updates** (SSE — used by the web app):
 
 ```bash
-curl http://localhost:8000/songs/{project_id}
+curl -N http://localhost:8000/songs/{project_id}/events
+```
+
+**Download assets**:
+
+```bash
+curl -O http://localhost:8000/songs/{project_id}/assets/instrumental
+curl -O http://localhost:8000/songs/{project_id}/assets/mix
+curl -O http://localhost:8000/songs/{project_id}/assets/midi
 ```
 
 ## Local development (without Docker)

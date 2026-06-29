@@ -50,6 +50,8 @@ services:
       context: ./services/composition
     ports:
       - "8002:8002"
+    volumes:
+      - song_outputs:/app/outputs
 
   mixing:
     build:

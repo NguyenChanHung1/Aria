@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     output_dir: str = "outputs"
+    web_origin: str = "http://localhost:3000"
 
 
 settings = Settings()

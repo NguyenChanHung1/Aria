@@ -45,6 +45,7 @@ class LyricsResult(BaseModel):
 class CompositionResult(BaseModel):
     midi_path: str
     stem_paths: list[str]
+    instrumental_preview_path: str
     duration_seconds: float
 
 

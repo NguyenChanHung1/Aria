@@ -40,6 +40,7 @@ class ComposeRequest(BaseModel):
 class ComposeResponse(BaseModel):
     midi_path: str
     stem_paths: list[str]
+    instrumental_preview_path: str
     duration_seconds: float
 
 
@@ -74,9 +75,13 @@ async def compose(request: ComposeRequest):
         _write_placeholder_wav(stem_path, duration, seed=hash(instrument) % 1000)
         stem_paths.append(str(stem_path))
 
+    preview_path = out_dir / "instrumental_preview.wav"
+    _write_instrumental_preview(preview_path, stem_paths)
+
     return ComposeResponse(
         midi_path=str(midi_path),
         stem_paths=stem_paths,
+        instrumental_preview_path=str(preview_path),
         duration_seconds=duration,
     )
 
@@ -132,4 +137,43 @@ def _write_placeholder_wav(path: Path, duration: float, seed: int = 42) -> None:
         wf.setsampwidth(2)
         wf.setframerate(sample_rate)
         pcm = (audio * 32767).astype(np.int16)
+        wf.writeframes(struct.pack(f"<{len(pcm)}h", *pcm))
+
+
+def _write_instrumental_preview(path: Path, stem_paths: list[str]) -> None:
+    """Combine instrumental stems into a listenable preview for the web UI."""
+    import struct
+    import wave
+
+    gains = {"drums": 1.0, "bass": 0.85, "chords": 0.7, "melody": 0.75}
+    mixed: np.ndarray | None = None
+    sample_rate = 44100
+
+    for stem_path in stem_paths:
+        stem_name = Path(stem_path).stem.replace("stem_", "")
+        with wave.open(stem_path, "r") as wf:
+            sr = wf.getframerate()
+            sample_rate = sr
+            raw = wf.readframes(wf.getnframes())
+            audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+
+        gain = gains.get(stem_name, 0.8)
+        audio = audio * gain
+        if mixed is None:
+            mixed = audio
+        else:
+            n = min(len(mixed), len(audio))
+            mixed = mixed[:n] + audio[:n]
+
+    if mixed is None:
+        return
+
+    peak = np.max(np.abs(mixed)) or 1.0
+    mixed = (mixed / peak * 0.9).astype(np.float32)
+    pcm = (mixed * 32767).astype(np.int16)
+
+    with wave.open(str(path), "w") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
         wf.writeframes(struct.pack(f"<{len(pcm)}h", *pcm))

@@ -1,17 +1,12 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import type {
-  CreateSongResponse,
-  Mood,
-  Genre,
-  SongBrief,
-  SongLength,
-  SongProject,
-  VocalStyle,
-  PipelineStage,
-} from "@aria/shared-types";
+import { useState } from "react";
+import type { Genre, Mood, SongBrief, SongLength, VocalStyle } from "@aria/shared-types";
+import { createSong } from "@/lib/agent";
+import { useProjectEvents } from "@/hooks/useProjectEvents";
 import { PipelineProgress } from "./PipelineProgress";
+import { LyricsPanel } from "./LyricsPanel";
+import { InstrumentalPlayer } from "./InstrumentalPlayer";
 import { SongResult } from "./SongResult";
 
 const MOODS: { value: Mood; label: string }[] = [
@@ -46,24 +41,22 @@ export function SongCreator({ agentUrl }: Props) {
   const [length, setLength] = useState<SongLength>("medium");
   const [vocalStyle, setVocalStyle] = useState<VocalStyle>("female");
   const [loading, setLoading] = useState(false);
-  const [project, setProject] = useState<SongProject | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const pollProject = useCallback(
-    async (projectId: string) => {
-      const terminal: PipelineStage[] = ["complete", "failed"];
-      for (let i = 0; i < 90; i++) {
-        const res = await fetch(`${agentUrl}/songs/${projectId}`);
-        if (!res.ok) throw new Error("Failed to fetch project status");
-        const data = await res.json();
-        const p = normalizeProject(data.project);
-        setProject(p);
-        if (terminal.includes(p.stage)) return;
-        await new Promise((r) => setTimeout(r, 2000));
-      }
-    },
-    [agentUrl],
-  );
+  const { project, connectionError } = useProjectEvents({
+    agentUrl,
+    projectId,
+    enabled: !!projectId,
+  });
+
+  const showLyrics =
+    project?.lyrics &&
+    ["composition", "mixing", "complete"].includes(project.stage);
+
+  const showInstrumental =
+    project?.composition &&
+    ["mixing", "complete"].includes(project.stage);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,7 +64,7 @@ export function SongCreator({ agentUrl }: Props) {
 
     setLoading(true);
     setError(null);
-    setProject(null);
+    setProjectId(null);
 
     const brief: SongBrief = {
       idea: idea.trim(),
@@ -83,33 +76,16 @@ export function SongCreator({ agentUrl }: Props) {
     };
 
     try {
-      const res = await fetch(`${agentUrl}/songs`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: null,
-          idea: brief.idea,
-          mood: brief.mood,
-          genre: brief.genre,
-          length: brief.length,
-          vocal_style: brief.vocalStyle,
-          language: brief.language,
-        }),
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Failed to start song creation");
-      }
-
-      const data: CreateSongResponse = await res.json();
-      await pollProject(data.projectId);
+      const data = await createSong(agentUrl, brief);
+      setProjectId(data.projectId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setLoading(false);
     }
   };
+
+  const isActive = loading || (project && !["complete", "failed"].includes(project.stage));
 
   return (
     <div className="creator">
@@ -122,7 +98,7 @@ export function SongCreator({ agentUrl }: Props) {
             placeholder="e.g. A summer road trip with friends, feeling free and alive..."
             rows={4}
             required
-            disabled={loading}
+            disabled={!!isActive}
           />
         </label>
 
@@ -132,7 +108,7 @@ export function SongCreator({ agentUrl }: Props) {
             <select
               value={mood}
               onChange={(e) => setMood(e.target.value as Mood)}
-              disabled={loading}
+              disabled={!!isActive}
             >
               {MOODS.map((m) => (
                 <option key={m.value} value={m.value}>
@@ -147,7 +123,7 @@ export function SongCreator({ agentUrl }: Props) {
             <select
               value={genre}
               onChange={(e) => setGenre(e.target.value as Genre)}
-              disabled={loading}
+              disabled={!!isActive}
             >
               {GENRES.map((g) => (
                 <option key={g.value} value={g.value}>
@@ -164,7 +140,7 @@ export function SongCreator({ agentUrl }: Props) {
             <select
               value={length}
               onChange={(e) => setLength(e.target.value as SongLength)}
-              disabled={loading}
+              disabled={!!isActive}
             >
               <option value="short">Short (~1 min)</option>
               <option value="medium">Medium (~2 min)</option>
@@ -177,7 +153,7 @@ export function SongCreator({ agentUrl }: Props) {
             <select
               value={vocalStyle}
               onChange={(e) => setVocalStyle(e.target.value as VocalStyle)}
-              disabled={loading}
+              disabled={!!isActive}
             >
               <option value="female">Female</option>
               <option value="male">Male</option>
@@ -187,17 +163,22 @@ export function SongCreator({ agentUrl }: Props) {
           </label>
         </div>
 
-        <button type="submit" className="submit-btn" disabled={loading || !idea.trim()}>
-          {loading ? "Creating your song…" : "Create my song"}
+        <button type="submit" className="submit-btn" disabled={!!isActive || !idea.trim()}>
+          {isActive ? "Creating your song…" : "Create my song"}
         </button>
       </form>
 
       {error && <div className="error-banner">{error}</div>}
+      {connectionError && project && !["complete", "failed"].includes(project.stage) && (
+        <div className="warn-banner">{connectionError}</div>
+      )}
 
       {project && (
         <div className="results">
           <PipelineProgress stage={project.stage} />
-          <SongResult project={project} />
+          {showLyrics && <LyricsPanel project={project} />}
+          {showInstrumental && <InstrumentalPlayer agentUrl={agentUrl} project={project} />}
+          <SongResult agentUrl={agentUrl} project={project} />
         </div>
       )}
 
@@ -272,6 +253,15 @@ export function SongCreator({ agentUrl }: Props) {
           border-radius: 8px;
           color: var(--error);
         }
+        .warn-banner {
+          margin-top: 1rem;
+          padding: 0.75rem 1rem;
+          background: rgba(251, 191, 36, 0.12);
+          border: 1px solid #fbbf24;
+          border-radius: 8px;
+          color: #fbbf24;
+          font-size: 0.9rem;
+        }
         .results {
           margin-top: 2rem;
           display: flex;
@@ -281,79 +271,4 @@ export function SongCreator({ agentUrl }: Props) {
       `}</style>
     </div>
   );
-}
-
-/** Map snake_case API responses to camelCase shared types. */
-function normalizeProject(raw: Record<string, unknown>): SongProject {
-  const brief = raw.brief as Record<string, unknown>;
-  return {
-    id: raw.id as string,
-    brief: {
-      title: brief.title as string | undefined,
-      idea: brief.idea as string,
-      mood: brief.mood as Mood,
-      genre: brief.genre as Genre,
-      length: brief.length as SongLength,
-      vocalStyle: (brief.vocal_style ?? brief.vocalStyle) as VocalStyle,
-      language: (brief.language as string) ?? "en",
-    },
-    stage: raw.stage as PipelineStage,
-    plan: raw.plan
-      ? {
-          title: (raw.plan as Record<string, unknown>).title as string,
-          summary: (raw.plan as Record<string, unknown>).summary as string,
-          bpm: (raw.plan as Record<string, unknown>).bpm as number,
-          key: (raw.plan as Record<string, unknown>).key as string,
-          structure: (
-            (raw.plan as Record<string, unknown>).structure as Array<
-              Record<string, unknown>
-            >
-          ).map((s) => ({
-            name: s.name as string,
-            bars: s.bars as number,
-            description: s.description as string,
-          })),
-          instrumentation: (raw.plan as Record<string, unknown>)
-            .instrumentation as string[],
-          productionNotes: ((raw.plan as Record<string, unknown>)
-            .production_notes ??
-            (raw.plan as Record<string, unknown>).productionNotes) as string[],
-        }
-      : undefined,
-    lyrics: raw.lyrics
-      ? {
-          fullText: ((raw.lyrics as Record<string, unknown>).full_text ??
-            (raw.lyrics as Record<string, unknown>).fullText) as string,
-          sections: (raw.lyrics as Record<string, unknown>).sections as Record<
-            string,
-            string
-          >,
-        }
-      : undefined,
-    composition: raw.composition
-      ? {
-          midiPath: ((raw.composition as Record<string, unknown>).midi_path ??
-            (raw.composition as Record<string, unknown>).midiPath) as string,
-          stemPaths: ((raw.composition as Record<string, unknown>).stem_paths ??
-            (raw.composition as Record<string, unknown>).stemPaths) as string[],
-          durationSeconds: ((raw.composition as Record<string, unknown>)
-            .duration_seconds ??
-            (raw.composition as Record<string, unknown>).durationSeconds) as number,
-        }
-      : undefined,
-    mix: raw.mix
-      ? {
-          audioPath: ((raw.mix as Record<string, unknown>).audio_path ??
-            (raw.mix as Record<string, unknown>).audioPath) as string,
-          format: (raw.mix as Record<string, unknown>).format as "wav" | "mp3",
-          durationSeconds: ((raw.mix as Record<string, unknown>).duration_seconds ??
-            (raw.mix as Record<string, unknown>).durationSeconds) as number,
-          loudnessLufs: ((raw.mix as Record<string, unknown>).loudness_lufs ??
-            (raw.mix as Record<string, unknown>).loudnessLufs) as number,
-        }
-      : undefined,
-    error: raw.error as string | undefined,
-    createdAt: (raw.created_at ?? raw.createdAt) as string,
-    updatedAt: (raw.updated_at ?? raw.updatedAt) as string,
-  };
 }

@@ -1,12 +1,12 @@
 import json
 import logging
-from pathlib import Path
 
 import httpx
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from agent.config import settings
+from agent.llm import with_llm_fallback
 from agent.models import (
     AgentState,
     CompositionResult,
@@ -27,10 +27,11 @@ async def plan_song(state: AgentState) -> AgentState:
     project.stage = "planning"
     brief = project.brief
 
-    if settings.openai_api_key:
-        plan = await _plan_with_llm(brief)
-    else:
-        plan = _plan_fallback(brief)
+    plan = await with_llm_fallback(
+        lambda: _plan_with_llm(brief),
+        lambda: _plan_fallback(brief),
+        label="planning",
+    )
 
     project.plan = plan
     project.stage = "lyrics"
@@ -122,6 +123,7 @@ def _default_instruments(genre: str) -> list[str]:
 
 async def generate_lyrics(state: AgentState) -> AgentState:
     project = state.project
+    project.stage = "lyrics"
     assert project.plan is not None
 
     async with httpx.AsyncClient(timeout=120.0) as client:
@@ -141,6 +143,7 @@ async def generate_lyrics(state: AgentState) -> AgentState:
 
 async def compose_music(state: AgentState) -> AgentState:
     project = state.project
+    project.stage = "composition"
     assert project.plan is not None and project.lyrics is not None
 
     async with httpx.AsyncClient(timeout=180.0) as client:

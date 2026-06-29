@@ -1,7 +1,10 @@
 import { SongCreator } from "@/components/SongCreator";
 import styles from "./page.module.css";
 
-const AGENT_URL = process.env.AGENT_API_URL ?? "http://localhost:8000";
+const AGENT_URL =
+  process.env.NEXT_PUBLIC_AGENT_API_URL ??
+  process.env.AGENT_API_URL ??
+  "http://localhost:8000";
 
 export default function HomePage() {
   return (

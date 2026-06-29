@@ -5,16 +5,9 @@ from fastapi import FastAPI
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
-from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
-    openai_api_key: str = ""
-    openai_model: str = "gpt-4o-mini"
-
-
-settings = Settings()
+from lyrics.config import settings
+from lyrics.llm import with_llm_fallback
 app = FastAPI(title="Aria Lyrics", version="0.1.0")
 
 
@@ -37,10 +30,11 @@ async def health():
 async def generate(request: GenerateRequest):
     brief = request.brief
     plan = request.plan
-
-    if settings.openai_api_key:
-        return await _generate_with_llm(brief, plan)
-    return _generate_template(brief, plan)
+    return await with_llm_fallback(
+        lambda: _generate_with_llm(brief, plan),
+        lambda: _generate_template(brief, plan),
+        label="lyrics",
+    )
 
 
 async def _generate_with_llm(brief: dict, plan: dict) -> LyricsResponse:

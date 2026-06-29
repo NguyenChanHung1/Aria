@@ -65,6 +65,7 @@ export interface LyricsResult {
 export interface CompositionResult {
   midiPath: string;
   stemPaths: string[];
+  instrumentalPreviewPath: string;
   durationSeconds: number;
 }
 
