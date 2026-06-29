@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+.next/
+out/
+.turbo/
+*.wav
+*.mp3
+*.mid
+outputs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+uv.lock
