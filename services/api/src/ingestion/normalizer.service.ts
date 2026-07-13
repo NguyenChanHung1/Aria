@@ -5,10 +5,6 @@ import { ProbeService } from './probe.service';
 import { IngestionException } from './ingestion.exception';
 import type { MediaPurpose, NormalizationProfile, ProbeMetadata } from './ingestion.contracts';
 
-export const COMPATIBILITY_PROFILE: NormalizationProfile = {
-  id: 'generator-compatibility', container: 'wav', codec: 'pcm_s16le', sampleRate: 44100, channels: 1, sampleFormat: 's16',
-};
-
 export function workingProfile(purpose: MediaPurpose): NormalizationProfile {
   return purpose === 'voice'
     ? { id: 'working-voice', container: 'wav', codec: 'pcm_s24le', sampleRate: 48000, channels: 1, sampleFormat: 's24' }

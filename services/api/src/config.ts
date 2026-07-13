@@ -3,7 +3,6 @@ import path from 'node:path';
 
 export const config = {
   port: Number(process.env.API_PORT ?? 8010),
-  agentUrl: (process.env.AGENT_SERVICE_URL ?? 'http://localhost:8000').replace(/\/$/, ''),
   storageDir: process.env.MEDIA_STORAGE_DIR ?? path.resolve(process.cwd(), 'outputs'),
   tempDir: process.env.MEDIA_TEMP_DIR ?? path.resolve(process.env.MEDIA_STORAGE_DIR ?? path.resolve(process.cwd(), 'outputs'), '.tmp'),
   webOrigin: process.env.WEB_ORIGIN ?? 'http://localhost:3000',

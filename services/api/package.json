@@ -7,7 +7,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:migrate:dev": "prisma migrate dev",
-    "test": "npm run build && node --test --test-isolation=none test/*.test.js",
+    "test": "npm run build && node --test test/*.test.js",
     "start:dev": "node --watch dist/main.js",
     "start": "node dist/main.js"
   },

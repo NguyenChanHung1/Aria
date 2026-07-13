@@ -1,10 +1,10 @@
-import { Body, Controller, Get, Param, Post, Req, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, NotFoundException, Param, Post, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import type { Request, Response } from 'express';
+import { Prisma, ProjectStatus } from '@prisma/client';
+import type { Request } from 'express';
 import { diskStorage } from 'multer';
 import { randomUUID } from 'node:crypto';
 import { rm } from 'node:fs/promises';
-import { AgentClient } from '../agent/agent.client';
 import { config } from '../config';
 import { IngestionService } from '../ingestion/ingestion.service';
 import { SongBriefService } from './song-brief.service';
@@ -13,7 +13,6 @@ import { ArtifactRepository } from '../artifacts/artifact.repository';
 @Controller('songs')
 export class SongsController {
   constructor(
-    private readonly agent: AgentClient,
     private readonly ingestion: IngestionService,
     private readonly briefs: SongBriefService,
     private readonly projects: ArtifactRepository,
@@ -33,9 +32,13 @@ export class SongsController {
     try {
       const brief = this.briefs.create(body, Boolean(media));
       const projectId = randomUUID();
-      await this.projects.createProject({ id: projectId, title: typeof body.title === 'string' ? body.title : undefined });
+      const title = typeof body.title === 'string' && body.title.trim() ? body.title.trim() : undefined;
+      await this.projects.createProject({
+        id: projectId,
+        ...(title ? { title } : {}),
+        metadata: { brief: brief as Prisma.InputJsonObject, stage: 'draft' },
+      });
       let publicInput: Record<string, unknown> | undefined;
-      let agentInput: Record<string, unknown> | undefined;
       if (media) {
         const controller = new AbortController();
         const abort = () => controller.abort();
@@ -44,13 +47,22 @@ export class SongsController {
           ingestionStarted = true;
           const result = await this.ingestion.ingest(projectId, media, body.media_purpose ?? body.mediaPurpose, controller.signal);
           publicInput = this.ingestion.publicResult(result);
-          agentInput = this.ingestion.toAgentAsset(result);
+          await this.projects.updateProjectState(projectId, ProjectStatus.ACTIVE, {
+            brief: brief as Prisma.InputJsonObject,
+            stage: 'input_ready',
+            inputManifestRef: result.manifestRef,
+          });
         } finally {
           request.removeListener('aborted', abort);
         }
       }
-      const created = await this.agent.createSong({ ...brief, project_id: projectId }, agentInput);
-      return { ...(created as Record<string, unknown>), input_asset: publicInput ?? null };
+      const stage = media ? 'input_ready' : 'draft';
+      return {
+        project_id: projectId,
+        stage,
+        project: { id: projectId, stage, brief },
+        input_asset: publicInput ?? null,
+      };
     } catch (error) {
       if (media && !ingestionStarted) await rm(media.path, { force: true }).catch(() => undefined);
       throw error;
@@ -59,21 +71,19 @@ export class SongsController {
 
   @Get(':id')
   async getSong(@Param('id') id: string) {
-    return this.agent.get(`/songs/${encodeURIComponent(id)}`).then((response) => response.json());
-  }
-
-  @Get(':id/events')
-  async events(@Param('id') id: string, @Res() response: Response) {
-    const upstream = await this.agent.get(`/songs/${encodeURIComponent(id)}/events`);
-    response.status(200).set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
-    (await this.agent.stream(upstream)).pipe(response);
-  }
-
-  @Get(':id/assets/:asset')
-  async asset(@Param('id') id: string, @Param('asset') asset: string, @Res() response: Response) {
-    const upstream = await this.agent.get(`/songs/${encodeURIComponent(id)}/assets/${encodeURIComponent(asset)}`);
-    response.status(upstream.status);
-    upstream.headers.forEach((value, key) => response.setHeader(key, value));
-    (await this.agent.stream(upstream)).pipe(response);
+    const project = await this.projects.getProject(id);
+    if (!project) throw new NotFoundException('Project not found');
+    const metadata = project.metadata as Record<string, unknown>;
+    return {
+      project: {
+        id: project.id,
+        stage: typeof metadata.stage === 'string' ? metadata.stage : project.status.toLowerCase(),
+        status: project.status.toLowerCase(),
+        brief: metadata.brief ?? null,
+        artifacts: project.artifacts,
+        created_at: project.createdAt,
+        updated_at: project.updatedAt,
+      },
+    };
   }
 }

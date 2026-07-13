@@ -140,7 +140,7 @@ test('FFprobe and policy accept MOV, WebM, and MKV audio/video containers', asyn
   }
 });
 
-test('ingestion preserves source provenance and produces verified working and compatibility WAVs', async (t) => {
+test('ingestion preserves source provenance and produces a verified working WAV', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'aria-ingestion-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   config.storageDir = path.join(root, 'storage');
@@ -155,19 +155,18 @@ test('ingestion preserves source provenance and produces verified working and co
   const result = await ingestion.ingest(projectId, multerFile(upload, '../unsafe-name.wav', 'audio/wav'), 'mixture');
   assert.equal(result.manifest.originalDisplayName, 'unsafe-name.wav');
   assert.equal(result.manifest.source.sha256, createHash('sha256').update(original).digest('hex'));
-  assert.equal(result.manifest.derived.length, 2);
+  assert.equal(result.manifest.derived.length, 1);
   assert.ok(result.manifest.source.ref.startsWith(`projects/${projectId}/source-media/`));
   assert.ok(!result.manifest.source.ref.startsWith('/'));
   assert.equal(existsSync(upload), false);
 
   const working = result.manifest.derived.find((artifact) => artifact.role === 'working');
-  const compatibility = result.manifest.derived.find((artifact) => artifact.role === 'compatibility');
   assert.deepEqual({ rate: working.profile.sampleRate, channels: working.profile.channels, codec: working.profile.codec }, { rate: 48000, channels: 2, codec: 'pcm_s24le' });
-  assert.deepEqual({ rate: compatibility.profile.sampleRate, channels: compatibility.profile.channels, codec: compatibility.profile.codec }, { rate: 44100, channels: 1, codec: 'pcm_s16le' });
-  const compatibilityProbe = await probe.inspect(result.internal.compatibilityPath);
-  assert.equal(compatibilityProbe.audioStreams[0].sampleRate, 44100);
-  assert.equal(compatibilityProbe.audioStreams[0].channels, 1);
-  assert.equal(compatibilityProbe.audioStreams[0].codec, 'pcm_s16le');
+  const workingPath = path.join(config.storageDir, working.ref);
+  const workingProbe = await probe.inspect(workingPath);
+  assert.equal(workingProbe.audioStreams[0].sampleRate, 48000);
+  assert.equal(workingProbe.audioStreams[0].channels, 2);
+  assert.equal(workingProbe.audioStreams[0].codec, 'pcm_s24le');
 
   const manifestPath = path.join(config.storageDir, result.manifestRef);
   assert.equal(JSON.parse(readFileSync(manifestPath, 'utf8')).schemaVersion, '1.0.0');

@@ -9,7 +9,7 @@ const choices = {
 
 @Injectable()
 export class SongBriefService {
-  create(body: Record<string, unknown>, hasMedia: boolean): Record<string, unknown> {
+  create(body: Record<string, unknown>, hasMedia: boolean): Record<string, string | null> {
     const idea = (this.text(body.idea ?? body.prompt, 'idea or prompt') ?? '').trim() || (hasMedia ? 'Create a song inspired by the uploaded audio.' : '');
     if (idea.length < 3) throw new BadRequestException('idea or prompt must contain at least 3 characters');
     if (idea.length > 10_000) throw new BadRequestException('idea or prompt must contain 10000 characters or fewer');

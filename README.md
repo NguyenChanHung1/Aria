@@ -1,224 +1,102 @@
 # Aria
 
-An AI agent monorepo that helps **non-experts** create complete songs — from a plain-language idea through planning, lyrics, composition, and mixing.
+Aria is an artifact-first foundation for multimodal song production. The current repository accepts text briefs and optional audio/video inputs, preserves and normalizes uploaded media, and stores versioned project/artifact metadata. Acoustic analysis and input interpretation are the next implementation phase.
 
-## Architecture
+## Current architecture
 
-```
+```text
 aria/
 ├── apps/
-│   ├── web/                    # Next.js UI (guided song creation wizard)
-│   └── mobile/                 # Flutter mobile client for the same Agent API
-├── packages/
-│   └── shared-types/           # TypeScript contracts shared with the frontend
+│   └── mobile/                 # Flutter project/input client
+├── infrastructure/
+│   └── minio/                  # Local object-storage TLS assets
 ├── services/
-│   ├── api/                    # Modular NestJS API: songs, ingestion, settings, health
-│   ├── agent/                  # LangGraph orchestrator (plan → lyrics → compose → mix)
-│   ├── lyrics/                 # Lyric generation service
-│   ├── composition/            # MIDI + stem generation service
-│   └── mixing/                 # Stem mixing + loudness normalization
+│   └── api/                    # NestJS ingestion, projects, artifacts, and health
 ├── docker-compose.yml
-└── package.json                # pnpm + Turborepo root
+└── README.md
 ```
 
 ```mermaid
 flowchart LR
-    User[Non-expert user] --> Web[Next.js Web / Flutter Mobile]
-    Web --> API[NestJS API + converter]
-    API --> Agent[Python LangGraph Agent]
-    Agent --> Plan[Planning]
-    Plan --> Lyrics[Lyrics Service]
-    Lyrics --> Compose[Composition Service]
-    Compose --> Mix[Mixing Service]
-    Mix --> Agent
-    Agent --> Redis[(Redis state)]
+    User[Flutter client or API caller] --> API[NestJS API]
+    API --> FFmpeg[FFprobe and FFmpeg]
+    API --> Postgres[(PostgreSQL metadata)]
+    API --> MinIO[(MinIO artifacts)]
+    FFmpeg --> Workspace[Local ingestion workspace]
 ```
+
+The earlier LangGraph agent and placeholder lyrics, composition, and mixing microservices were removed before Phase 2. They generated prototype output but did not fit the artifact-first input-analysis boundary. Generation services will be introduced later behind versioned artifact contracts when their phases are implemented.
 
 ## Technology choices
 
-| Layer | Choice | Why |
-|-------|--------|-----|
-| **Monorepo** | pnpm workspaces + Turborepo | Fast installs, cached builds, clean separation between UI and services while sharing types |
-| **Frontend** | TypeScript + Next.js 15 + React 19 | Best-in-class DX for accessible, guided UIs; SSR-ready; non-experts need a simple wizard, not a CLI |
-| **Public API** | NestJS + TypeScript | Validates requests, accepts media uploads, converts audio/video, stores settings, and forwards AI jobs |
-| **Agent orchestration** | Python + LangGraph | Song creation is a multi-step state machine; the AI runtime remains Python |
-| **LLM integration** | LangChain + OpenAI | Mature tooling for structured JSON outputs in planning and lyrics; works without an API key via template fallbacks for local dev |
-| **Microservices** | FastAPI (Python) | Each creative step is CPU/GPU-intensive and independently scalable; FastAPI gives async I/O, auto OpenAPI docs, and Pydantic validation |
-| **Audio** | midiutil, numpy, scipy | Lightweight, no-GPU local dev path; composition generates MIDI + stems, mixing applies EQ/normalization. Swap internals for MusicGen, Suno, or Udio APIs in production |
-| **State** | Redis | Fast project polling from the web UI while long-running pipelines execute |
-| **Persistence** | PostgreSQL + S3-compatible object storage | PostgreSQL stores project/artifact metadata; media binaries use MinIO locally and S3 (or R2) in production |
-| **Containers** | Docker Compose | One command to run the full stack locally |
-
-### Why Python for AI services and TypeScript for the UI?
-
-Python dominates the AI/ML ecosystem (LangChain, audio libraries, model hosting). TypeScript dominates interactive web UIs. A polyglot monorepo lets each layer use the best tool without forcing Python into the frontend or React into the agent.
-
-### Why microservices instead of one monolith?
-
-Planning, lyrics, composition, and mixing have different resource profiles (LLM calls vs. DSP vs. future GPU inference). Splitting them lets you scale composition/mixing on GPU nodes while keeping lightweight LLM services on CPU instances.
+| Layer | Choice | Current responsibility |
+|-------|--------|------------------------|
+| Mobile | Flutter | Create a brief, upload media, and inspect project/input readiness |
+| Public API | NestJS + TypeScript | Validate requests, ingest media, and expose projects/artifacts |
+| Media tools | FFprobe + FFmpeg | Inspect, extract, measure, and normalize accepted media |
+| Metadata | PostgreSQL + Prisma | Projects, artifacts, versions, lineage, provenance, reviews, and edits |
+| Binary artifacts | MinIO / S3-compatible storage | Private immutable objects and signed upload/download URLs |
+| Local deployment | Docker Compose | API, PostgreSQL, MinIO, and bucket initialization |
 
 ## Quick start
 
 ### Prerequisites
 
-- Node.js 20+
-- pnpm 9+
-- Docker & Docker Compose
-- (Optional) `OPENAI_API_KEY` for higher-quality planning and lyrics
+- Docker and Docker Compose
+- Node.js 20+ and npm for local API development
+- Flutter SDK for the mobile client
+- FFmpeg 6+ when running the API outside Docker
 
-### 1. Install frontend dependencies
-
-```bash
-pnpm install
-```
-
-### 2. Configure environment
+### 1. Configure the environment
 
 ```bash
 cp .env.example .env
-# Add OPENAI_API_KEY=sk-... for LLM-powered output (optional)
 ```
 
-### 3. Start backend services
+Replace the development PostgreSQL and MinIO credentials before exposing the stack outside a local machine.
+
+### 2. Start the backend
 
 ```bash
 docker compose up --build
 ```
 
-Services:
-
 | Service | Port | Role |
 |---------|------|------|
-| API | 8010 | Public NestJS API, media converter, and settings |
-| Agent | 8000 | Internal Python/LangGraph orchestrator |
-| Lyrics | 8001 | Generates lyrics |
-| Composition | 8002 | Creates MIDI + stems |
-| Mixing | 8003 | Produces final WAV |
-| Postgres | 5432 | Prisma-managed project, artifact, lineage, provenance, and review metadata |
-| MinIO | 9000 / 9001 | Private S3-compatible artifact objects / local admin console |
-| Redis | 6379 | Project state |
+| API | 8010 | Public project, ingestion, and artifact API |
+| PostgreSQL | 5432 | Project/artifact metadata and lineage |
+| MinIO | 9000 / 9001 | Private artifact objects / local administration console |
 
-The API ingestion module requires `ffmpeg` and `ffprobe`. The Docker image installs them automatically; for local API development install FFmpeg 6 or newer from your operating system.
-The API container applies pending Prisma migrations before it starts. MinIO creates the private
-`aria-artifacts` bucket on first boot and persists objects in the `minio_data` volume.
+The API container applies pending Prisma migrations before startup. `minio-init` creates the private `aria-artifacts` bucket after MinIO becomes healthy.
 
-### 4. Start the web app
+### 3. Run the Flutter client
 
-```bash
-pnpm dev:web
-```
-
-Open [http://localhost:3000](http://localhost:3000), describe your song, and watch the pipeline progress. The web app connects to the agent via Server-Sent Events and streams lyrics and instrumental previews as each LangGraph stage completes.
-
-### 5. Run the Flutter mobile app
-
-The Flutter client lives in `apps/mobile` and uses the existing Agent REST API. It polls project status while a song is being generated and provides mobile views for the brief form, pipeline progress, lyrics, instrumental preview, and final mix.
-
-For a browser preview from a remote server, use Flutter's web server target rather than the Linux desktop target:
+For a browser preview:
 
 ```bash
 cd apps/mobile
-flutter run -d web-server --web-hostname 127.0.0.1 --web-port 3000 --dart-define=AGENT_API_URL=http://localhost:8010
-```
-
-Flutter development can be done entirely from VS Code and a terminal; Android Studio's UI is not required. Install the Flutter SDK, Android command-line tools, a JDK, and accept the Android SDK licenses before targeting Android.
-
-```bash
-cd apps/mobile
-flutter create .                         # first run: generate Android/iOS runners
 flutter pub get
-flutter run --dart-define=AGENT_API_URL=http://10.0.2.2:8010
+flutter run -d web-server --web-hostname 127.0.0.1 --web-port 3000 \
+  --dart-define=ARIA_API_URL=http://localhost:8010
 ```
 
-Use `http://localhost:8010` for iOS simulators or desktop Flutter targets. For a physical device, replace the host with the machine's LAN IP and ensure port 8010 is reachable.
+For Android emulators, use `http://10.0.2.2:8010`; iOS simulators and desktop targets can use `http://localhost:8010`. Physical devices require the development machine's reachable LAN address.
 
-## Web ↔ Agent connection
-
-```
-Browser (Next.js)
-  │  POST /songs              → start LangGraph pipeline
-  │  GET  /songs/{id}/events  → SSE stream (plan → lyrics → compose → mix)
-  │  GET  /songs/{id}/assets/instrumental → preview WAV while mixing runs
-  │  GET  /songs/{id}/assets/mix        → final mastered WAV
-  └  GET  /songs/{id}/assets/midi       → MIDI arrangement download
-
-Agent (LangGraph + FastAPI)
-  │  plan node    → lyrics service
-  │  lyrics node  → saves lyrics → web shows LyricsPanel
-  │  compose node → composition service → saves MIDI + instrumental preview
-  │  mixing task  → mixing service (parallel, while user listens to preview)
-  └  Redis        → project state + SSE fan-out
-```
-
-Set `NEXT_PUBLIC_AGENT_API_URL=http://localhost:8010` in `.env` for the browser or mobile client to reach the NestJS API.
-
-## Audio and artifact storage
-
-Media binaries belong in object storage, not PostgreSQL. PostgreSQL stores project and artifact
-metadata, versions, dependency edges, provenance, model/prompt versions, quality scores, human edits,
-pipeline phases, and review status through Prisma. MinIO is the local S3-compatible provider; Amazon
-S3 and Cloudflare R2 can use the same adapter in production. The NestJS API records immutable object
-keys internally and exposes opaque artifact IDs plus short-lived signed upload/playback URLs, never
-object keys or host filesystem paths to clients.
-
-Keep original uploads, normalized WAV files, analysis outputs, stems, previews, draft deliverables,
-and final masters as separate immutable artifacts. This allows drafted lyrics, drafted instrumental,
-and drafted composed song to be reviewed or regenerated without overwriting their parents. Object
-keys follow `projects/{projectId}/{namespace}/{artifactId}/{fileName}`. Artifact rows use independent
-`logicalName`/`version` sequences, an optional parent, and typed many-to-many dependency edges.
-
-Retention is metadata-driven: originals and final masters/exports are deletion-protected;
-intermediates may be deleted only after active descendants are removed; previews may receive a short
-`expiresAt`; deleting an eligible artifact tombstones its metadata rather than reusing its key. The
-current converter still uses `MEDIA_STORAGE_DIR` as its FFmpeg compatibility workspace while the
-object-storage contract and metadata repository are adopted by subsequent pipeline phases.
-
-The versioned payload contracts are in `services/api/src/artifacts/artifact.contracts.ts`, the Prisma
-schema is in `services/api/prisma/schema.prisma`, and migrations live under
-`services/api/prisma/migrations`. Redis remains limited to locks, progress, queues, and event fan-out.
-
-### Signed artifact URLs
-
-Create a project directly with `POST /projects`, or use the project created by `POST /songs`. Request
-an immutable pending artifact and signed upload URL with:
-
-```bash
-curl -X POST http://localhost:8010/projects/{projectId}/artifacts/upload-url \
-  -H 'Content-Type: application/json' \
-  -d '{"artifactType":"LYRICS","namespace":"LYRICS","retentionClass":"INTERMEDIATE","logicalName":"draft-lyrics","fileName":"lyrics.json","contentType":"application/json"}'
-```
-
-After the worker verifies the object and marks it `AVAILABLE`, request playback/download metadata at
-`GET /projects/{projectId}/artifacts/{artifactId}/download-url`. URLs expire after 15 minutes by
-default; allowed lifetimes are 60–3600 seconds.
-
-### MinIO security, backup, and restore
-
-Compose binds MinIO only to loopback for development. Replace the default credentials, mount
-`public.crt` and `private.key` under `infrastructure/minio/certs`, switch internal/public endpoints to
-HTTPS, and use a certificate matching the MinIO hostname before exposing it outside the host.
-PostgreSQL metadata and MinIO objects form one logical backup and must be captured at the same
-application quiescence point:
-
-```bash
-docker compose exec -T postgres pg_dump -U aria -d aria -Fc > aria-postgres.dump
-docker run --rm -v aria_minio_data:/source:ro -v "$PWD/backups:/backup" alpine \
-  tar -C /source -czf /backup/aria-minio.tgz .
-```
-
-For restore, stop API/worker writes, restore PostgreSQL with `pg_restore --clean --if-exists`, restore
-the MinIO volume archive, start PostgreSQL and MinIO, run `npm run prisma:migrate:deploy` in
-`services/api`, then verify a sample checksum through a signed download URL before resuming jobs.
-
-The full storage contract is in [`requirements/converter-module.md`](requirements/converter-module.md).
+The client creates either a text-only `draft` project or an `input_ready` project after media passes ingestion and normalization. Song generation is intentionally unavailable until its later pipeline phases are implemented.
 
 ## API overview
 
-**Create a song** (NestJS API):
+### Health
+
+```bash
+curl http://localhost:8010/health
+```
+
+### Create a text-only draft
 
 ```bash
 curl -X POST http://localhost:8010/songs \
-  -H "Content-Type: application/json" \
+  -H 'Content-Type: application/json' \
   -d '{
     "idea": "A rainy night in the city, feeling hopeful",
     "mood": "chill",
@@ -228,89 +106,116 @@ curl -X POST http://localhost:8010/songs \
   }'
 ```
 
-**Stream live updates** (SSE — proxied by NestJS):
-
-```bash
-curl -N http://localhost:8010/songs/{project_id}/events
-```
-
-**Download assets**:
-
-```bash
-curl -O http://localhost:8010/songs/{project_id}/assets/instrumental
-curl -O http://localhost:8010/songs/{project_id}/assets/mix
-curl -O http://localhost:8010/songs/{project_id}/assets/midi
-```
-
-**Set the global producer prompt**:
-
-```bash
-curl -X PUT http://localhost:8010/settings/prompt \
-  -H "Content-Type: application/json" \
-  -d '{"global_prompt":"You are a songwriter who is very into pop and rap music."}'
-```
-
-**Upload an inspiring audio/video file**:
+### Create a project with media
 
 ```bash
 curl -X POST http://localhost:8010/songs \
-  -F "media=@inspiration.mp3" \
-  -F "idea=Write a new song inspired by this reference" \
-  -F "media_purpose=mixture" \
-  -F "mood=energetic" -F "genre=pop"
+  -F 'media=@inspiration.mp3' \
+  -F 'idea=Prepare this reference for a new song project' \
+  -F 'media_purpose=mixture' \
+  -F 'mood=energetic' \
+  -F 'genre=pop'
 ```
 
-The multipart `media` field accepts MP3, WAV, FLAC, AAC/M4A, OGG/Opus, WMA, MP4/MOV, WebM/MKV, MPEG, and AVI when FFprobe confirms a supported audio stream. Set `media_purpose=voice` only for isolated speech, singing, or humming; omit it or use `mixture` for instrument recordings, mixes, and reference songs. Text-only requests may include optional `lyrics` alongside `idea`.
+Use `media_purpose=voice` only for known isolated speech, singing, or humming. Use `mixture` for instrument recordings, mixes, and reference songs. Phase 2 will replace this coarse upload hint with acoustic classification and a correctable interpretation.
 
-Accepted media is stored once under an opaque source artifact ID and SHA-256 checksum. Ingestion creates a 48 kHz/24-bit WAV working copy (stereo for mixtures, mono for isolated voice), plus a 44.1 kHz/16-bit mono compatibility WAV for the current Python generators. The response exposes repository-independent artifact references and an input manifest, never host filesystem paths. Unsupported, malformed, no-audio, silence-only, excessive-duration, oversized, and excessively clipped uploads return structured 4xx errors with a stable `code`.
+The response contains `project_id`, a `draft` or `input_ready` stage, a project summary, and the public input manifest when media was supplied.
 
-The API contract is documented in [`services/api/openapi.yaml`](services/api/openapi.yaml).
+### Read project state
+
+```bash
+curl http://localhost:8010/songs/{projectId}
+curl http://localhost:8010/projects/{projectId}
+```
+
+The compatibility `/songs/{projectId}` view returns the brief, stage, status, and artifacts. `/projects/{projectId}` returns the canonical Prisma project record.
+
+The complete contract is in [services/api/openapi.yaml](services/api/openapi.yaml).
+
+## Media ingestion
+
+The multipart `media` field accepts MP3, WAV, FLAC, AAC/M4A, OGG/Opus, WMA, MP4/MOV, WebM/MKV, MPEG, and AVI when FFprobe confirms a supported audio stream.
+
+For each accepted upload, ingestion:
+
+1. validates request limits and media policy;
+2. preserves the source under an opaque identifier and SHA-256 checksum;
+3. records bounded FFprobe metadata and warnings;
+4. creates a 48 kHz, 24-bit working WAV—stereo for mixtures and mono for known isolated voice;
+5. writes an input manifest without exposing host filesystem paths.
+
+Unsupported, malformed, no-audio, silence-only, excessive-duration, oversized, and excessively clipped uploads return structured 4xx errors with stable codes.
 
 ### Ingestion configuration
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `MEDIA_STORAGE_DIR` | `outputs` | Immutable source media, normalized audio, manifests, and settings |
-| `MEDIA_TEMP_DIR` | `<MEDIA_STORAGE_DIR>/.tmp` | Bounded multipart staging area; keep it on the same filesystem for atomic moves |
+| `API_PORT` | `8010` | Public API port |
+| `MEDIA_STORAGE_DIR` | `outputs` | Source media, normalized audio, and manifests |
+| `MEDIA_TEMP_DIR` | `<MEDIA_STORAGE_DIR>/.tmp` | Bounded multipart staging area |
 | `MAX_UPLOAD_BYTES` | `262144000` | Maximum encoded upload size |
-| `MAX_MEDIA_DURATION_SECONDS` | `1800` | Maximum decoded media duration |
-| `MAX_MEDIA_STREAMS` | `16` | Maximum streams accepted from a container |
-| `MEDIA_PROCESS_TIMEOUT_MS` | `120000` | Timeout for each FFmpeg/FFprobe process |
-| `MEDIA_SILENCE_THRESHOLD_DB` | `-60` | Silence-only detection threshold |
-| `MEDIA_CLIPPING_WARNING_DB` | `-0.1` | Peak level that adds a clipping warning |
+| `MAX_MEDIA_DURATION_SECONDS` | `1800` | Maximum decoded duration |
+| `MAX_MEDIA_STREAMS` | `16` | Maximum accepted streams per container |
+| `MEDIA_PROCESS_TIMEOUT_MS` | `120000` | Timeout for each FFmpeg/FFprobe invocation |
+| `MEDIA_SILENCE_THRESHOLD_DB` | `-60` | Silence-only threshold |
+| `MEDIA_CLIPPING_WARNING_DB` | `-0.1` | Peak level that produces a clipping warning |
 | `MEDIA_MAX_CLIPPING_RATIO` | `0.01` | Estimated clipped-sample ratio that rejects an upload |
-| `DATABASE_URL` | `postgresql://aria:aria@localhost:5432/aria` | Prisma PostgreSQL connection |
-| `OBJECT_STORAGE_ENDPOINT` | `http://localhost:9000` | API-to-S3/MinIO endpoint |
-| `OBJECT_STORAGE_PUBLIC_ENDPOINT` | `OBJECT_STORAGE_ENDPOINT` | Endpoint embedded in browser-facing signed URLs |
-| `OBJECT_STORAGE_BUCKET` | `aria-artifacts` | Private immutable artifact bucket |
-| `OBJECT_STORAGE_ACCESS_KEY` / `OBJECT_STORAGE_SECRET_KEY` | development credentials | S3-compatible credentials; replace outside local development |
-| `OBJECT_STORAGE_SIGNED_URL_TTL_SECONDS` | `900` | Signed URL lifetime; 60–3600 seconds |
 
-For production, monitor storage capacity and ingestion rejection logs, alert on process timeouts, periodically verify that the temporary directory is empty, pin/test the deployed FFmpeg version, and replace the default no-op `UploadScanner` provider with the deployment's malware scanner.
+The default upload scanner is a replaceable no-op provider. Production deployments must supply a malware/content-scanning implementation.
 
-## Local development (without Docker)
+## Artifact storage
 
-Run each Python service in its own terminal:
+PostgreSQL stores project and artifact metadata, versions, dependency edges, provenance, quality scores, human edits, pipeline phase, and review state. Media and generated files belong in object storage rather than database JSON.
+
+Object keys follow `projects/{projectId}/{namespace}/{artifactId}/{fileName}`. The API exposes opaque artifact IDs and short-lived signed URLs, never object keys or host paths. Originals and final artifacts are deletion-protected; referenced intermediates cannot be deleted while active descendants exist.
+
+Create a pending analysis artifact and signed upload URL with:
 
 ```bash
-cd services/agent && pip install -e . && uvicorn agent.main:app --reload --port 8000
-cd services/lyrics && pip install -e . && uvicorn lyrics.main:app --reload --port 8001
-cd services/composition && pip install -e . && uvicorn composition.main:app --reload --port 8002
-cd services/mixing && pip install -e . && uvicorn mixing.main:app --reload --port 8003
-cd services/api && npm install && npm run prisma:migrate:deploy && npm test && npm run build && node dist/main.js
+curl -X POST http://localhost:8010/projects/{projectId}/artifacts/upload-url \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "artifactType":"ANALYSIS",
+    "namespace":"ANALYSIS",
+    "retentionClass":"INTERMEDIATE",
+    "logicalName":"acoustic-analysis",
+    "fileName":"acoustic.json",
+    "contentType":"application/json"
+  }'
 ```
 
-You also need Redis running locally (`redis-server` or Docker).
+After a worker verifies and marks the artifact available, request a signed download at `GET /projects/{projectId}/artifacts/{artifactId}/download-url`. Signed URL lifetimes are configurable from 60 to 3600 seconds and default to 900 seconds.
 
-## Production upgrades
+The versioned payload contracts live in `services/api/src/artifacts/artifact.contracts.ts`; the database schema and migrations live under `services/api/prisma`.
 
-The scaffold uses template/MIDI fallbacks so the full pipeline runs without paid APIs. To reach production quality:
+### Backup and restore
 
-1. **Lyrics / Planning** — Connect `OPENAI_API_KEY` or any OpenAI-compatible endpoint
-2. **Composition** — Replace MIDI generator with [MusicGen](https://github.com/facebookresearch/audiocraft), Stable Audio, Suno, or Udio
-3. **Mixing** — Add `pyloudnorm` + `pedalboard` for pro-grade mastering
-4. **Vocals** — Integrate a singing voice synthesis API (e.g. ACE Studio, Kits.ai)
-5. **Storage** — Serve final audio via S3/Cloudflare R2 instead of local paths
+PostgreSQL metadata and MinIO objects form one logical backup and must be captured at the same application quiescence point:
+
+```bash
+docker compose exec -T postgres pg_dump -U aria -d aria -Fc > aria-postgres.dump
+docker run --rm -v aria_minio_data:/source:ro -v "$PWD/backups:/backup" alpine \
+  tar -C /source -czf /backup/aria-minio.tgz .
+```
+
+For restore, stop API writes, restore PostgreSQL with `pg_restore --clean --if-exists`, restore the MinIO volume, start PostgreSQL and MinIO, deploy Prisma migrations, and verify sample checksums through signed downloads before resuming writes.
+
+## Local API development
+
+Start PostgreSQL and MinIO, then run:
+
+```bash
+cd services/api
+npm install
+npm run prisma:migrate:deploy
+npm test
+npm run build
+node dist/main.js
+```
+
+## Next phase
+
+Phase 2 adds deterministic acoustic measurements, frozen-model audio embeddings, calibrated input classification, immutable interpretation artifacts, and explicit user confirmation/correction. See `plan/phase-2-input-interpretation.md` in a local planning workspace.
 
 ## License
 

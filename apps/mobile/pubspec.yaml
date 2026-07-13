@@ -1,5 +1,5 @@
 name: aria_mobile
-description: Flutter mobile client for Aria AI song creation.
+description: Flutter mobile client for Aria project ingestion.
 publish_to: "none"
 version: 0.1.0+1
 
@@ -9,7 +9,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  audioplayers: ^6.1.0
   file_picker: ^8.1.7
   http: ^1.2.2
 

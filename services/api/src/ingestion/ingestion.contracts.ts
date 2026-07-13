@@ -44,17 +44,17 @@ export type QualityMetadata = {
 };
 
 export type NormalizationProfile = {
-  id: 'working-stereo' | 'working-voice' | 'generator-compatibility';
+  id: 'working-stereo' | 'working-voice';
   container: 'wav';
-  codec: 'pcm_s24le' | 'pcm_s16le';
-  sampleRate: 48000 | 44100;
+  codec: 'pcm_s24le';
+  sampleRate: 48000;
   channels: 1 | 2;
-  sampleFormat: 's24' | 's16';
+  sampleFormat: 's24';
 };
 
 export type ArtifactReference = {
   id: string;
-  role: 'source' | 'working' | 'compatibility';
+  role: 'source' | 'working';
   ref: string;
   mediaType: string;
   bytes: number;
@@ -92,18 +92,4 @@ export type InputManifest = {
 export type IngestionResult = {
   manifest: InputManifest;
   manifestRef: string;
-  internal: {
-    sourcePath: string;
-    compatibilityPath: string;
-  };
-};
-
-export type AgentCompatibilityAsset = {
-  kind: MediaKind;
-  originalPath: string;
-  normalizedWavPath: string;
-  format: 'wav-pcm-s16le-44100-mono';
-  artifactRef: string;
-  manifestRef: string;
-  sha256: string;
 };

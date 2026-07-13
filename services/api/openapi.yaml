@@ -1,20 +1,20 @@
 openapi: 3.1.0
 info:
   title: Aria NestJS API
-  version: 0.3.0
-  description: Public song workflow API with multimodal ingestion and versioned artifact storage.
+  version: 0.4.0
+  description: Public project API with multimodal ingestion and versioned artifact storage.
 servers:
   - url: http://localhost:8010
 paths:
   /health:
     get:
-      summary: Report API and Python-agent health
+      summary: Report API health
       responses:
         '200':
-          description: Health result; status is degraded when the agent is unavailable.
+          description: API process is available.
   /songs:
     post:
-      summary: Start a song from text and optional audio/video media
+      summary: Create a draft project from a brief and optional audio/video input
       requestBody:
         required: true
         content:
@@ -35,61 +35,19 @@ paths:
                       enum: [mixture, voice]
       responses:
         '201':
-          description: Song accepted; input_asset is null for text-only requests or contains the public input manifest.
+          description: Project created in draft or input_ready state; input_asset is null for text-only requests or contains the public input manifest.
         '400':
           $ref: '#/components/responses/IngestionError'
         '413':
           $ref: '#/components/responses/IngestionError'
-        '502':
-          description: Python agent unavailable or rejected the request.
   /songs/{id}:
     get:
-      summary: Get song status from the Python agent
+      summary: Get the persisted project and artifact state
       parameters:
         - $ref: '#/components/parameters/ProjectId'
       responses:
-        '200': { description: Current project state }
-        '502': { description: Python agent unavailable }
-  /songs/{id}/events:
-    get:
-      summary: Stream project events
-      parameters:
-        - $ref: '#/components/parameters/ProjectId'
-      responses:
-        '200':
-          description: Server-Sent Events stream
-          content:
-            text/event-stream: {}
-  /songs/{id}/assets/{asset}:
-    get:
-      summary: Download a generated project asset
-      parameters:
-        - $ref: '#/components/parameters/ProjectId'
-        - name: asset
-          in: path
-          required: true
-          schema: { type: string }
-      responses:
-        '200': { description: Proxied generated asset }
-  /settings/prompt:
-    get:
-      summary: Read the global producer prompt
-      responses:
-        '200': { description: Current global prompt }
-    put:
-      summary: Replace the global producer prompt
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [global_prompt]
-              properties:
-                global_prompt: { type: string, maxLength: 4000 }
-      responses:
-        '200': { description: Updated global prompt }
-        '400': { description: Invalid prompt }
+        '200': { description: Current persisted project state }
+        '404': { description: Project not found }
   /projects:
     post:
       summary: Create a Prisma-backed project metadata record

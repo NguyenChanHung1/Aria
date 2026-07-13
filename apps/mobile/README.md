@@ -1,17 +1,12 @@
-# aria_mobile
+# Aria mobile
 
-A new Flutter project.
+Flutter client for creating Aria projects, uploading optional audio/video input, and viewing whether the input is ready for analysis.
 
-## Getting Started
+```bash
+flutter pub get
+flutter run --dart-define=ARIA_API_URL=http://localhost:8010
+```
 
-This project is a starting point for a Flutter application.
+Use `http://10.0.2.2:8010` for an Android emulator. Physical devices require the API host's reachable LAN address.
 
-A few resources to get you started if this is your first Flutter project:
-
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+The current client stops at project ingestion. Acoustic analysis and correctable input interpretation arrive in Phase 2; lyrics, composition, mixing, and playback are not currently exposed.

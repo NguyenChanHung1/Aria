@@ -69,6 +69,10 @@ export class ArtifactRepository {
     return this.prisma.project.findUnique({ where: { id }, include: { artifacts: { orderBy: { createdAt: 'asc' } } } });
   }
 
+  updateProjectState(id: string, status: ProjectStatus, metadata: Prisma.InputJsonObject) {
+    return this.prisma.project.update({ where: { id }, data: { status, metadata } });
+  }
+
   async createArtifactVersion(input: CreateArtifactVersionInput) {
     return this.prisma.$transaction(async (tx) => {
       const project = await tx.project.findUnique({ where: { id: input.projectId }, select: { id: true } });
