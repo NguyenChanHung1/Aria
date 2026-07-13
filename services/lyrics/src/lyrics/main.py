@@ -52,7 +52,8 @@ async def _generate_with_llm(brief: dict, plan: dict) -> LyricsResponse:
             f"Idea: {brief.get('idea')}\n"
             f"Mood: {brief.get('mood')}, Genre: {brief.get('genre')}\n"
             f"Structure: {structure}\n"
-            f"Language: {brief.get('language', 'en')}"
+            f"Language: {brief.get('language', 'en')}\n"
+            f"Global producer direction: {brief.get('global_prompt', '')}"
         )
     )
     response = await llm.ainvoke([system, user])

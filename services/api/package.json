@@ -1,0 +1,30 @@
+{
+  "name": "@aria/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "npm run prisma:generate && tsc -p tsconfig.json",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:migrate:dev": "prisma migrate dev",
+    "test": "npm run build && node --test --test-isolation=none test/*.test.js",
+    "start:dev": "node --watch dist/main.js",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.830.0",
+    "@aws-sdk/s3-request-presigner": "^3.830.0",
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "@prisma/client": "^6.19.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.1",
+    "@types/multer": "^1.4.12",
+    "prisma": "^6.19.0",
+    "typescript": "^5.8.3"
+  }
+}

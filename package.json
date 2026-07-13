@@ -8,7 +8,7 @@
     "build": "turbo run build",
     "lint": "turbo run lint",
     "dev:web": "pnpm --filter @aria/web dev",
-    "dev:services": "docker compose up agent lyrics composition mixing postgres redis -d"
+    "dev:services": "docker compose up api agent lyrics composition mixing postgres redis -d"
   },
   "devDependencies": {
     "turbo": "^2.5.4"

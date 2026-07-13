@@ -12,6 +12,7 @@ PipelineStage = Literal["planning", "lyrics", "composition", "mixing", "complete
 
 
 class SongBrief(BaseModel):
+    project_id: str | None = None
     title: str | None = None
     idea: str = Field(..., min_length=3, description="User's song idea in plain language")
     mood: Mood
@@ -19,6 +20,9 @@ class SongBrief(BaseModel):
     length: SongLength = "medium"
     vocal_style: VocalStyle = "female"
     language: str = "en"
+    source_lyrics: str | None = Field(default=None, max_length=50_000)
+    global_prompt: str = ""
+    input_asset: dict[str, object] | None = None
 
 
 class SongSection(BaseModel):

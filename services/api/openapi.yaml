@@ -1,0 +1,202 @@
+openapi: 3.1.0
+info:
+  title: Aria NestJS API
+  version: 0.3.0
+  description: Public song workflow API with multimodal ingestion and versioned artifact storage.
+servers:
+  - url: http://localhost:8010
+paths:
+  /health:
+    get:
+      summary: Report API and Python-agent health
+      responses:
+        '200':
+          description: Health result; status is degraded when the agent is unavailable.
+  /songs:
+    post:
+      summary: Start a song from text and optional audio/video media
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SongFields'
+          multipart/form-data:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/SongFields'
+                - type: object
+                  properties:
+                    media:
+                      type: string
+                      format: binary
+                    media_purpose:
+                      type: string
+                      enum: [mixture, voice]
+      responses:
+        '201':
+          description: Song accepted; input_asset is null for text-only requests or contains the public input manifest.
+        '400':
+          $ref: '#/components/responses/IngestionError'
+        '413':
+          $ref: '#/components/responses/IngestionError'
+        '502':
+          description: Python agent unavailable or rejected the request.
+  /songs/{id}:
+    get:
+      summary: Get song status from the Python agent
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200': { description: Current project state }
+        '502': { description: Python agent unavailable }
+  /songs/{id}/events:
+    get:
+      summary: Stream project events
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Server-Sent Events stream
+          content:
+            text/event-stream: {}
+  /songs/{id}/assets/{asset}:
+    get:
+      summary: Download a generated project asset
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - name: asset
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Proxied generated asset }
+  /settings/prompt:
+    get:
+      summary: Read the global producer prompt
+      responses:
+        '200': { description: Current global prompt }
+    put:
+      summary: Replace the global producer prompt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [global_prompt]
+              properties:
+                global_prompt: { type: string, maxLength: 4000 }
+      responses:
+        '200': { description: Updated global prompt }
+        '400': { description: Invalid prompt }
+  /projects:
+    post:
+      summary: Create a Prisma-backed project metadata record
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+      responses:
+        '201': { description: Versioned project record }
+  /projects/{projectId}:
+    get:
+      summary: Get a project and its artifact metadata
+      parameters:
+        - $ref: '#/components/parameters/ArtifactProjectId'
+      responses:
+        '200': { description: Project with artifacts ordered by creation time }
+        '404': { description: Project not found }
+  /projects/{projectId}/artifacts/upload-url:
+    post:
+      summary: Create a pending artifact version and signed PUT URL
+      parameters:
+        - $ref: '#/components/parameters/ArtifactProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateArtifactUpload'
+      responses:
+        '201':
+          description: Pending artifact metadata and short-lived signed upload contract
+        '400': { description: Invalid artifact fields or signed URL lifetime }
+        '404': { description: Project not found }
+  /projects/{projectId}/artifacts/{artifactId}/download-url:
+    get:
+      summary: Create a signed GET URL for an available artifact
+      parameters:
+        - $ref: '#/components/parameters/ArtifactProjectId'
+        - name: artifactId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Short-lived signed download contract
+        '404': { description: Available artifact not found }
+components:
+  parameters:
+    ProjectId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ArtifactProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  schemas:
+    CreateArtifactUpload:
+      type: object
+      required: [artifactType, namespace, retentionClass, logicalName, fileName, contentType]
+      properties:
+        artifactType:
+          type: string
+          enum: [INPUT_MANIFEST, REQUIREMENTS, CREATIVE_BRIEF, SONG_BLUEPRINT, LYRICS, SYMBOLIC_SCORE, ARRANGEMENT, PERFORMANCE, STEM, MIX, MASTER, REVIEW, EXPORT, SOURCE_MEDIA, NORMALIZED_AUDIO, ANALYSIS, PREVIEW]
+        namespace:
+          type: string
+          enum: [ORIGINALS, NORMALIZED_AUDIO, ANALYSIS, REQUIREMENTS, CREATIVE_DIRECTION, BLUEPRINTS, LYRICS, SCORES, ARRANGEMENTS, PERFORMANCES, STEMS, MIXES, MASTERS, REVIEWS, PREVIEWS, EXPORTS]
+        retentionClass: { type: string, enum: [ORIGINAL, INTERMEDIATE, PREVIEW, FINAL] }
+        logicalName: { type: string, minLength: 1 }
+        fileName: { type: string, pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$' }
+        contentType: { type: string, minLength: 1 }
+        expiresInSeconds: { type: integer, minimum: 60, maximum: 3600, default: 900 }
+        expiresAt:
+          type: string
+          format: date-time
+          description: Optional lifecycle expiry; accepted only with PREVIEW retention.
+    SongFields:
+      type: object
+      properties:
+        title: { type: string }
+        idea: { type: string, minLength: 3, maxLength: 10000 }
+        prompt: { type: string, minLength: 3, maxLength: 10000 }
+        lyrics: { type: string, maxLength: 50000 }
+        mood: { type: string, enum: [happy, sad, energetic, chill, romantic, epic, mysterious] }
+        genre: { type: string, enum: [pop, rock, hip-hop, r-and-b, electronic, folk, jazz, country] }
+        length: { type: string, enum: [short, medium, long] }
+        vocal_style: { type: string, enum: [male, female, duet, instrumental] }
+        language: { type: string, default: en }
+    Error:
+      type: object
+      required: [statusCode, error, code, message]
+      properties:
+        statusCode: { type: integer }
+        error: { type: string }
+        code:
+          type: string
+          examples: [NO_AUDIO_STREAM, SILENCE_ONLY, UPLOAD_TOO_LARGE]
+        message: { type: string }
+  responses:
+    IngestionError:
+      description: Upload or media validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

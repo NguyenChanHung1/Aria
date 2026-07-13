@@ -1,0 +1,185 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProjectStatus {
+  DRAFT
+  ACTIVE
+  COMPLETE
+  FAILED
+  ARCHIVED
+}
+
+enum ArtifactType {
+  INPUT_MANIFEST
+  REQUIREMENTS
+  CREATIVE_BRIEF
+  SONG_BLUEPRINT
+  LYRICS
+  SYMBOLIC_SCORE
+  ARRANGEMENT
+  PERFORMANCE
+  STEM
+  MIX
+  MASTER
+  REVIEW
+  EXPORT
+  SOURCE_MEDIA
+  NORMALIZED_AUDIO
+  ANALYSIS
+  PREVIEW
+}
+
+enum ArtifactNamespace {
+  ORIGINALS
+  NORMALIZED_AUDIO
+  ANALYSIS
+  REQUIREMENTS
+  CREATIVE_DIRECTION
+  BLUEPRINTS
+  LYRICS
+  SCORES
+  ARRANGEMENTS
+  PERFORMANCES
+  STEMS
+  MIXES
+  MASTERS
+  REVIEWS
+  PREVIEWS
+  EXPORTS
+}
+
+enum ArtifactStatus {
+  PENDING
+  PROCESSING
+  AVAILABLE
+  FAILED
+  SUPERSEDED
+  DELETED
+}
+
+enum DependencyKind {
+  DERIVED_FROM
+  REQUIRES
+  COMPOSES
+  REFERENCES
+}
+
+enum RetentionClass {
+  ORIGINAL
+  INTERMEDIATE
+  PREVIEW
+  FINAL
+}
+
+enum ReviewDecision {
+  PENDING
+  APPROVED
+  CHANGES_REQUESTED
+  REJECTED
+}
+
+model Project {
+  id            String        @id @default(uuid()) @db.Uuid
+  schemaVersion String        @default("1.0.0") @map("schema_version")
+  status        ProjectStatus @default(DRAFT)
+  title         String?
+  metadata      Json          @default("{}")
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  artifacts     Artifact[]
+  reviews       Review[]
+
+  @@map("projects")
+}
+
+model Artifact {
+  id               String               @id @default(uuid()) @db.Uuid
+  projectId        String               @map("project_id") @db.Uuid
+  project          Project              @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  type             ArtifactType
+  namespace        ArtifactNamespace
+  logicalName      String               @map("logical_name")
+  version          Int
+  schemaVersion    String               @map("schema_version")
+  status           ArtifactStatus       @default(PENDING)
+  objectKey        String               @unique @map("object_key")
+  mimeType         String               @map("mime_type")
+  fileSize         BigInt?              @map("file_size")
+  checksumSha256   String?              @map("checksum_sha256") @db.Char(64)
+  durationMs       Int?                 @map("duration_ms")
+  sampleRate       Int?                 @map("sample_rate")
+  channels         Int?
+  pipelinePhase    String?              @map("pipeline_phase")
+  qualityScore     Decimal?             @map("quality_score") @db.Decimal(5, 4)
+  modelVersion     String?              @map("model_version")
+  promptVersion    String?              @map("prompt_version")
+  provenance       Json                 @default("{}")
+  payload          Json                 @default("{}")
+  retentionClass   RetentionClass       @map("retention_class")
+  expiresAt        DateTime?            @map("expires_at") @db.Timestamptz(6)
+  parentArtifactId String?              @map("parent_artifact_id") @db.Uuid
+  parent           Artifact?            @relation("ArtifactParent", fields: [parentArtifactId], references: [id], onDelete: Restrict)
+  children         Artifact[]           @relation("ArtifactParent")
+  dependencies     ArtifactDependency[] @relation("ArtifactDependencies")
+  dependents       ArtifactDependency[] @relation("ArtifactDependents")
+  edits            HumanEdit[]
+  reviews          Review[]
+  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([projectId, type, logicalName, version])
+  @@index([projectId, namespace, status])
+  @@index([parentArtifactId])
+  @@map("artifacts")
+}
+
+model ArtifactDependency {
+  artifactId  String         @map("artifact_id") @db.Uuid
+  dependsOnId String         @map("depends_on_id") @db.Uuid
+  kind        DependencyKind @default(REQUIRES)
+  artifact    Artifact       @relation("ArtifactDependencies", fields: [artifactId], references: [id], onDelete: Restrict)
+  dependsOn   Artifact       @relation("ArtifactDependents", fields: [dependsOnId], references: [id], onDelete: Restrict)
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([artifactId, dependsOnId, kind])
+  @@index([dependsOnId])
+  @@map("artifact_dependencies")
+}
+
+model HumanEdit {
+  id           String   @id @default(uuid()) @db.Uuid
+  artifactId   String   @map("artifact_id") @db.Uuid
+  artifact     Artifact @relation(fields: [artifactId], references: [id], onDelete: Restrict)
+  editorId     String?  @map("editor_id")
+  baseChecksum String?  @map("base_checksum") @db.Char(64)
+  patch        Json
+  summary      String?
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([artifactId, createdAt])
+  @@map("human_edits")
+}
+
+model Review {
+  id            String         @id @default(uuid()) @db.Uuid
+  projectId     String         @map("project_id") @db.Uuid
+  project       Project        @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  artifactId    String?        @map("artifact_id") @db.Uuid
+  artifact      Artifact?      @relation(fields: [artifactId], references: [id], onDelete: Restrict)
+  schemaVersion String         @map("schema_version")
+  decision      ReviewDecision @default(PENDING)
+  qualityScore  Decimal?       @map("quality_score") @db.Decimal(5, 4)
+  reviewerId    String?        @map("reviewer_id")
+  notes         String?
+  payload       Json           @default("{}")
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([projectId, artifactId, createdAt])
+  @@map("reviews")
+}

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import uuid
 from datetime import datetime
 
 import redis.asyncio as redis
@@ -43,7 +44,7 @@ class ProjectStore:
             await queue.put(project)
 
     async def create(self, brief: SongBrief) -> SongProject:
-        project = SongProject(brief=brief)
+        project = SongProject(id=brief.project_id or str(uuid.uuid4()), brief=brief)
         await self.save(project)
         return project
 

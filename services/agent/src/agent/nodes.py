@@ -54,7 +54,8 @@ async def _plan_with_llm(brief) -> SongPlan:
             f"Idea: {brief.idea}\n"
             f"Mood: {brief.mood}\nGenre: {brief.genre}\n"
             f"Length: {brief.length}\nVocals: {brief.vocal_style}\n"
-            f"Language: {brief.language}"
+            f"Language: {brief.language}\n"
+            f"Global producer direction: {brief.global_prompt}"
         )
     )
     response = await llm.ainvoke([system, user])
