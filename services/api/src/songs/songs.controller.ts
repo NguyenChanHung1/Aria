@@ -9,6 +9,9 @@ import { config } from '../config';
 import { IngestionService } from '../ingestion/ingestion.service';
 import { SongBriefService } from './song-brief.service';
 import { ArtifactRepository } from '../artifacts/artifact.repository';
+import { AnalysisService } from '../analysis/analysis.service';
+import type { InputInterpretation } from '../analysis/analysis.contracts';
+import { serializeArtifact } from '../artifacts/serialize-artifact';
 
 @Controller('songs')
 export class SongsController {
@@ -16,6 +19,7 @@ export class SongsController {
     private readonly ingestion: IngestionService,
     private readonly briefs: SongBriefService,
     private readonly projects: ArtifactRepository,
+    private readonly analysis: AnalysisService,
   ) {}
 
   @Post()
@@ -39,6 +43,7 @@ export class SongsController {
         metadata: { brief: brief as Prisma.InputJsonObject, stage: 'draft' },
       });
       let publicInput: Record<string, unknown> | undefined;
+      let interpretation: InputInterpretation | null = null;
       if (media) {
         const controller = new AbortController();
         const abort = () => controller.abort();
@@ -47,21 +52,26 @@ export class SongsController {
           ingestionStarted = true;
           const result = await this.ingestion.ingest(projectId, media, body.media_purpose ?? body.mediaPurpose, controller.signal);
           publicInput = this.ingestion.publicResult(result);
+          interpretation = await this.analysis.analyze(projectId, result.inputId, result.workingArtifactId);
+          const inputStage = interpretation?.reviewStatus === 'needs_review' ? 'awaiting_input_review' : interpretation ? 'input_interpreted' : 'input_ready';
           await this.projects.updateProjectState(projectId, ProjectStatus.ACTIVE, {
             brief: brief as Prisma.InputJsonObject,
-            stage: 'input_ready',
+            stage: inputStage,
             inputManifestRef: result.manifestRef,
+            inputId: result.inputId,
+            interpretationVersion: interpretation?.version,
           });
         } finally {
           request.removeListener('aborted', abort);
         }
       }
-      const stage = media ? 'input_ready' : 'draft';
+      const stage = media ? (interpretation?.reviewStatus === 'needs_review' ? 'awaiting_input_review' : interpretation ? 'input_interpreted' : 'input_ready') : 'draft';
       return {
         project_id: projectId,
         stage,
         project: { id: projectId, stage, brief },
         input_asset: publicInput ?? null,
+        interpretation,
       };
     } catch (error) {
       if (media && !ingestionStarted) await rm(media.path, { force: true }).catch(() => undefined);
@@ -80,7 +90,9 @@ export class SongsController {
         stage: typeof metadata.stage === 'string' ? metadata.stage : project.status.toLowerCase(),
         status: project.status.toLowerCase(),
         brief: metadata.brief ?? null,
-        artifacts: project.artifacts,
+        artifacts: project.artifacts.map(serializeArtifact),
+        input_id: typeof metadata.inputId === 'string' ? metadata.inputId : null,
+        interpretation_version: typeof metadata.interpretationVersion === 'number' ? metadata.interpretationVersion : null,
         created_at: project.createdAt,
         updated_at: project.updatedAt,
       },

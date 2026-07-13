@@ -23,6 +23,12 @@ export const config = {
     forcePathStyle: (process.env.OBJECT_STORAGE_FORCE_PATH_STYLE ?? 'true') === 'true',
     signedUrlTtlSeconds: Number(process.env.OBJECT_STORAGE_SIGNED_URL_TTL_SECONDS ?? 900),
   },
+  analysis: {
+    enabled: (process.env.ANALYSIS_ENABLED ?? 'false') === 'true',
+    url: process.env.ANALYSIS_WORKER_URL ?? 'http://analysis:8020',
+    timeoutMs: Number(process.env.ANALYSIS_TIMEOUT_MS ?? 300_000),
+    mandatoryReview: (process.env.ANALYSIS_MANDATORY_REVIEW ?? 'false') === 'true',
+  },
 };
 
 export async function ensureStorage(): Promise<void> {

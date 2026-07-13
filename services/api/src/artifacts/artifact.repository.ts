@@ -33,6 +33,7 @@ const namespaceValues = {
 } as const;
 
 export interface CreateArtifactVersionInput {
+  id?: string;
   projectId: string;
   type: ArtifactType;
   namespace: ArtifactNamespace;
@@ -94,7 +95,7 @@ export class ArtifactRepository {
         orderBy: { version: 'desc' },
         select: { version: true },
       });
-      const id = randomUUID();
+      const id = input.id ?? randomUUID();
       const version = (latest?.version ?? 0) + 1;
       const objectKey = artifactObjectKey({
         projectId: input.projectId,
@@ -134,8 +135,16 @@ export class ArtifactRepository {
     });
   }
 
-  async markAvailable(id: string, metadata: { checksumSha256: string; fileSize: bigint; durationMs?: number; sampleRate?: number; channels?: number; qualityScore?: Prisma.Decimal }) {
+  async markAvailable(id: string, metadata: { checksumSha256: string; fileSize: bigint; durationMs?: number; sampleRate?: number; channels?: number; qualityScore?: Prisma.Decimal; payload?: Prisma.InputJsonObject }) {
     return this.prisma.artifact.update({ where: { id }, data: { ...metadata, status: ArtifactStatus.AVAILABLE } });
+  }
+
+  getArtifact(id: string) {
+    return this.prisma.artifact.findUnique({ where: { id } });
+  }
+
+  markFailed(id: string, payload: Prisma.InputJsonObject = {}) {
+    return this.prisma.artifact.update({ where: { id }, data: { status: ArtifactStatus.FAILED, payload } });
   }
 
   async addHumanEdit(input: { artifactId: string; editorId?: string; baseChecksum?: string; patch: Prisma.InputJsonValue; summary?: string }) {

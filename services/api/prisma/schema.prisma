@@ -130,6 +130,8 @@ model Artifact {
   dependents       ArtifactDependency[] @relation("ArtifactDependents")
   edits            HumanEdit[]
   reviews          Review[]
+  interpretationInputHead  InputInterpretationHead? @relation("InterpretationInput")
+  activeInterpretationHead InputInterpretationHead? @relation("ActiveInterpretation")
   createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -137,6 +139,18 @@ model Artifact {
   @@index([projectId, namespace, status])
   @@index([parentArtifactId])
   @@map("artifacts")
+}
+
+model InputInterpretationHead {
+  inputManifestId       String   @id @map("input_manifest_id") @db.Uuid
+  inputManifest         Artifact @relation("InterpretationInput", fields: [inputManifestId], references: [id], onDelete: Restrict)
+  activeArtifactId      String   @unique @map("active_artifact_id") @db.Uuid
+  activeArtifact        Artifact @relation("ActiveInterpretation", fields: [activeArtifactId], references: [id], onDelete: Restrict)
+  version               Int
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("input_interpretation_heads")
 }
 
 model ArtifactDependency {

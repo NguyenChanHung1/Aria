@@ -1,0 +1,8 @@
+fastapi==0.115.14
+uvicorn[standard]==0.34.3
+httpx==0.28.1
+numpy==1.26.4
+scipy==1.15.3
+soundfile==0.13.1
+tensorflow-cpu==2.15.1
+tensorflow-hub==0.15.0

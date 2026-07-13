@@ -92,4 +92,6 @@ export type InputManifest = {
 export type IngestionResult = {
   manifest: InputManifest;
   manifestRef: string;
+  inputId: string;
+  workingArtifactId: string;
 };

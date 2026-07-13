@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Aria NestJS API
-  version: 0.4.0
-  description: Public project API with multimodal ingestion and versioned artifact storage.
+  version: 0.5.0
+  description: Public project API with multimodal ingestion, acoustic analysis, learned embeddings, and correctable input interpretation.
 servers:
   - url: http://localhost:8010
 paths:
@@ -35,7 +35,7 @@ paths:
                       enum: [mixture, voice]
       responses:
         '201':
-          description: Project created in draft or input_ready state; input_asset is null for text-only requests or contains the public input manifest.
+          description: Project created as a text draft or with an analyzed input; media responses include the public manifest and active interpretation and normally await review while the baseline is uncalibrated.
         '400':
           $ref: '#/components/responses/IngestionError'
         '413':
@@ -97,6 +97,43 @@ paths:
         '200':
           description: Short-lived signed download contract
         '404': { description: Available artifact not found }
+  /projects/{projectId}/inputs/{inputId}/interpretation:
+    get:
+      summary: Read the active input interpretation and correction choices
+      parameters:
+        - $ref: '#/components/parameters/ArtifactProjectId'
+        - $ref: '#/components/parameters/InputId'
+      responses:
+        '200':
+          description: Active interpretation, ranked source candidates, and allowed correction values
+        '404': { description: Input interpretation not found }
+    patch:
+      summary: Confirm or correct an inferred input interpretation
+      parameters:
+        - $ref: '#/components/parameters/ArtifactProjectId'
+        - $ref: '#/components/parameters/InputId'
+        - name: x-editor-id
+          in: header
+          schema: { type: string }
+          description: Local actor label recorded in the audit trail; not an authentication credential.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InterpretationPatch' }
+      responses:
+        '200': { description: New immutable active interpretation version }
+        '400': { description: Invalid taxonomy value }
+        '404': { description: Input interpretation not found }
+        '409': { description: baseVersion is stale; refresh before retrying }
+  /projects/{projectId}/inputs/{inputId}/interpretation/history:
+    get:
+      summary: List immutable interpretation versions and edit summaries
+      parameters:
+        - $ref: '#/components/parameters/ArtifactProjectId'
+        - $ref: '#/components/parameters/InputId'
+      responses:
+        '200': { description: Ordered interpretation history }
 components:
   parameters:
     ProjectId:
@@ -108,6 +145,12 @@ components:
       name: projectId
       in: path
       required: true
+      schema: { type: string, format: uuid }
+    InputId:
+      name: inputId
+      in: path
+      required: true
+      description: Input-manifest artifact ID
       schema: { type: string, format: uuid }
   schemas:
     CreateArtifactUpload:
@@ -141,6 +184,22 @@ components:
         length: { type: string, enum: [short, medium, long] }
         vocal_style: { type: string, enum: [male, female, duet, instrumental] }
         language: { type: string, default: en }
+    InterpretationPatch:
+      type: object
+      required: [baseVersion]
+      properties:
+        baseVersion: { type: integer, minimum: 1 }
+        sourceType:
+          type: string
+          enum: [speech, singing, humming, solo_instrument, mixed_music, environmental_sound, beatboxing, unknown]
+        musicScope: { type: string, enum: [full_song, fragment, loop, unknown] }
+        intendedUses:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [transcribe_lyrics, extract_melody, use_as_vocal_performance, use_as_instrument_performance, use_as_style_reference, continue_recording, ignore]
+        note: { type: string, maxLength: 500 }
     Error:
       type: object
       required: [statusCode, error, code, message]

@@ -4,8 +4,25 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
-const _moods = ['happy', 'sad', 'energetic', 'chill', 'romantic', 'epic', 'mysterious'];
-const _genres = ['pop', 'rock', 'hip-hop', 'r-and-b', 'electronic', 'folk', 'jazz', 'country'];
+const _moods = [
+  'happy',
+  'sad',
+  'energetic',
+  'chill',
+  'romantic',
+  'epic',
+  'mysterious'
+];
+const _genres = [
+  'pop',
+  'rock',
+  'hip-hop',
+  'r-and-b',
+  'electronic',
+  'folk',
+  'jazz',
+  'country'
+];
 const _lengths = ['short', 'medium', 'long'];
 const _vocals = ['female', 'male', 'duet', 'instrumental'];
 
@@ -54,8 +71,22 @@ class _ProjectCreatorPageState extends State<ProjectCreatorPage> {
         type: FileType.custom,
         withData: true,
         allowedExtensions: const [
-          'mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus', 'wma',
-          'mp4', 'mov', 'm4v', 'webm', 'mpeg', 'mpg', 'avi', 'mkv'
+          'mp3',
+          'wav',
+          'm4a',
+          'aac',
+          'flac',
+          'ogg',
+          'opus',
+          'wma',
+          'mp4',
+          'mov',
+          'm4v',
+          'webm',
+          'mpeg',
+          'mpg',
+          'avi',
+          'mkv'
         ]);
     if (result != null && result.files.single.bytes != null && mounted) {
       setState(() => _inputFile = result.files.single);
@@ -103,8 +134,10 @@ class _ProjectCreatorPageState extends State<ProjectCreatorPage> {
       body: SafeArea(
           child: ListView(padding: const EdgeInsets.all(20), children: [
         Text('Multimodal song workspace',
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                color: Theme.of(context).colorScheme.primary)),
+            style: Theme.of(context)
+                .textTheme
+                .labelLarge
+                ?.copyWith(color: Theme.of(context).colorScheme.primary)),
         const SizedBox(height: 8),
         Text('Create an input project',
             style: Theme.of(context)
@@ -132,7 +165,8 @@ class _ProjectCreatorPageState extends State<ProjectCreatorPage> {
             items: const [
               DropdownMenuItem(value: 'prompt', child: Text('Text only')),
               DropdownMenuItem(value: 'voice', child: Text('Voice recording')),
-              DropdownMenuItem(value: 'media', child: Text('Audio or video file'))
+              DropdownMenuItem(
+                  value: 'media', child: Text('Audio or video file'))
             ],
             onChanged: _loading
                 ? null
@@ -146,25 +180,31 @@ class _ProjectCreatorPageState extends State<ProjectCreatorPage> {
               onPressed: _loading ? null : _pickInput,
               icon: const Icon(Icons.upload_file),
               label: Text(_inputFile?.name ?? 'Choose audio or video')),
-          Text('The original is preserved and normalized into working WAV artifacts.',
+          Text(
+              'The original is preserved and normalized into working WAV artifacts.',
               style: Theme.of(context).textTheme.bodySmall)
         ],
         const SizedBox(height: 12),
         Row(children: [
-          _choice('Mood', _mood, _moods, (value) => setState(() => _mood = value!)),
+          _choice(
+              'Mood', _mood, _moods, (value) => setState(() => _mood = value!)),
           const SizedBox(width: 12),
-          _choice('Genre', _genre, _genres, (value) => setState(() => _genre = value!))
+          _choice('Genre', _genre, _genres,
+              (value) => setState(() => _genre = value!))
         ]),
         const SizedBox(height: 12),
         Row(children: [
-          _choice('Length', _length, _lengths, (value) => setState(() => _length = value!)),
+          _choice('Length', _length, _lengths,
+              (value) => setState(() => _length = value!)),
           const SizedBox(width: 12),
-          _choice('Vocals', _vocal, _vocals, (value) => setState(() => _vocal = value!))
+          _choice('Vocals', _vocal, _vocals,
+              (value) => setState(() => _vocal = value!))
         ]),
         const SizedBox(height: 16),
         FilledButton.icon(
             onPressed: _loading ||
-                    (_ideaController.text.trim().length < 3 && _inputFile == null)
+                    (_ideaController.text.trim().length < 3 &&
+                        _inputFile == null)
                 ? null
                 : _create,
             icon: const Icon(Icons.create_new_folder),
@@ -175,7 +215,11 @@ class _ProjectCreatorPageState extends State<ProjectCreatorPage> {
         ],
         if (_project != null) ...[
           const SizedBox(height: 24),
-          _ProjectCard(project: _project!, onRefresh: _refresh)
+          _ProjectCard(
+              project: _project!,
+              api: _api,
+              onChanged: (project) => setState(() => _project = project),
+              onRefresh: _refresh)
         ]
       ])));
 
@@ -187,7 +231,8 @@ class _ProjectCreatorPageState extends State<ProjectCreatorPage> {
               decoration: InputDecoration(
                   labelText: label, border: const OutlineInputBorder()),
               items: values
-                  .map((item) => DropdownMenuItem(value: item, child: Text(item)))
+                  .map((item) =>
+                      DropdownMenuItem(value: item, child: Text(item)))
                   .toList(),
               onChanged: _loading ? null : onChanged));
 }
@@ -225,16 +270,21 @@ class AriaApi {
       if (response.statusCode >= 300) {
         throw Exception('Could not prepare input (${response.statusCode})');
       }
-      return ProjectSummary.fromJson(
-          (jsonDecode(body) as Map<String, dynamic>)['project'] as Map<String, dynamic>);
+      final decoded = jsonDecode(body) as Map<String, dynamic>;
+      final input = decoded['input_asset'] as Map<String, dynamic>?;
+      final manifest = input?['manifest'] as Map<String, dynamic>?;
+      return ProjectSummary.fromJson(decoded['project'] as Map<String, dynamic>,
+          inputId: manifest?['id'] as String?,
+          interpretation: decoded['interpretation'] as Map<String, dynamic>?);
     }
     final response = await http.post(_uri('/songs'),
-        headers: {'Content-Type': 'application/json'}, body: jsonEncode(fields));
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(fields));
     if (response.statusCode >= 300) {
       throw Exception('Could not create project (${response.statusCode})');
     }
-    return ProjectSummary.fromJson(
-        (jsonDecode(response.body) as Map<String, dynamic>)['project'] as Map<String, dynamic>);
+    return ProjectSummary.fromJson((jsonDecode(response.body)
+        as Map<String, dynamic>)['project'] as Map<String, dynamic>);
   }
 
   Future<ProjectSummary> getProject(String id) async {
@@ -242,38 +292,204 @@ class AriaApi {
     if (response.statusCode >= 300) {
       throw Exception('Could not load project (${response.statusCode})');
     }
-    return ProjectSummary.fromJson(
-        (jsonDecode(response.body) as Map<String, dynamic>)['project'] as Map<String, dynamic>);
+    final project = (jsonDecode(response.body)
+        as Map<String, dynamic>)['project'] as Map<String, dynamic>;
+    final inputId = project['input_id'] as String?;
+    Map<String, dynamic>? interpretation;
+    if (inputId != null) {
+      final interpretationResponse =
+          await http.get(_uri('/projects/$id/inputs/$inputId/interpretation'));
+      if (interpretationResponse.statusCode < 300) {
+        interpretation = (jsonDecode(interpretationResponse.body)
+            as Map<String, dynamic>)['interpretation'] as Map<String, dynamic>?;
+      }
+    }
+    return ProjectSummary.fromJson(project,
+        inputId: inputId, interpretation: interpretation);
+  }
+
+  Future<ProjectSummary> correctInterpretation(ProjectSummary project,
+      String sourceType, List<String> intendedUses) async {
+    final response = await http.patch(
+        _uri(
+            '/projects/${project.id}/inputs/${project.inputId}/interpretation'),
+        headers: {
+          'Content-Type': 'application/json',
+          'x-editor-id': 'flutter-local-user'
+        },
+        body: jsonEncode({
+          'baseVersion': project.interpretationVersion,
+          'sourceType': sourceType,
+          'intendedUses': intendedUses
+        }));
+    if (response.statusCode == 409) {
+      throw Exception(
+          'The interpretation changed. Refresh and compare your selection.');
+    }
+    if (response.statusCode >= 300) {
+      throw Exception('Could not save correction (${response.statusCode})');
+    }
+    final interpretation = (jsonDecode(response.body)
+        as Map<String, dynamic>)['interpretation'] as Map<String, dynamic>;
+    return project.copyWith(interpretation: interpretation);
   }
 }
 
 class ProjectSummary {
   const ProjectSummary(
-      {required this.id, required this.stage, this.status, this.artifactCount = 0});
+      {required this.id,
+      required this.stage,
+      this.status,
+      this.artifactCount = 0,
+      this.inputId,
+      this.sourceType,
+      this.reviewStatus,
+      this.interpretationVersion = 0,
+      this.intendedUses = const [],
+      this.warnings = const [],
+      this.suggestedUses = const []});
   final String id;
   final String stage;
   final String? status;
   final int artifactCount;
+  final String? inputId, sourceType, reviewStatus;
+  final int interpretationVersion;
+  final List<String> intendedUses, warnings, suggestedUses;
 
-  factory ProjectSummary.fromJson(Map<String, dynamic> json) => ProjectSummary(
-      id: json['id'] as String,
-      stage: json['stage'] as String? ?? 'draft',
-      status: json['status'] as String?,
-      artifactCount: (json['artifacts'] as List<dynamic>?)?.length ?? 0);
+  factory ProjectSummary.fromJson(Map<String, dynamic> json,
+          {String? inputId, Map<String, dynamic>? interpretation}) =>
+      ProjectSummary(
+          id: json['id'] as String,
+          stage: json['stage'] as String? ?? 'draft',
+          status: json['status'] as String?,
+          artifactCount: (json['artifacts'] as List<dynamic>?)?.length ?? 0,
+          inputId: inputId ?? json['input_id'] as String?,
+          sourceType: interpretation?['sourceType'] as String?,
+          reviewStatus: interpretation?['reviewStatus'] as String?,
+          interpretationVersion: interpretation?['version'] as int? ?? 0,
+          intendedUses:
+              (interpretation?['intendedUses'] as List<dynamic>? ?? [])
+                  .cast<String>(),
+          warnings: (interpretation?['warnings'] as List<dynamic>? ?? [])
+              .cast<String>(),
+          suggestedUses: ((interpretation?['suggestedUses'] as List<dynamic>? ??
+                  [])
+              .map((item) =>
+                  (item as Map<String, dynamic>)['value'] as String)).toList());
+
+  ProjectSummary copyWith({required Map<String, dynamic> interpretation}) =>
+      ProjectSummary.fromJson({
+        'id': id,
+        'stage': interpretation['reviewStatus'] == 'needs_review'
+            ? 'awaiting_input_review'
+            : 'input_interpreted',
+        'status': status,
+        'artifacts': List.filled(artifactCount, null)
+      }, inputId: inputId, interpretation: interpretation);
 }
 
-class _ProjectCard extends StatelessWidget {
-  const _ProjectCard({required this.project, required this.onRefresh});
+class _ProjectCard extends StatefulWidget {
+  const _ProjectCard(
+      {required this.project,
+      required this.api,
+      required this.onChanged,
+      required this.onRefresh});
   final ProjectSummary project;
+  final AriaApi api;
+  final ValueChanged<ProjectSummary> onChanged;
   final VoidCallback onRefresh;
 
   @override
+  State<_ProjectCard> createState() => _ProjectCardState();
+}
+
+class _ProjectCardState extends State<_ProjectCard> {
+  bool _saving = false;
+
+  Future<void> _review() async {
+    var source = widget.project.sourceType ?? 'unknown';
+    final uses = widget.project.intendedUses.toSet();
+    final accepted = await showDialog<bool>(
+        context: context,
+        builder: (context) => StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+                  title: const Text('Confirm input interpretation'),
+                  content: SizedBox(
+                      width: 420,
+                      child: SingleChildScrollView(
+                          child:
+                              Column(mainAxisSize: MainAxisSize.min, children: [
+                        DropdownButtonFormField<String>(
+                            initialValue: source,
+                            decoration:
+                                const InputDecoration(labelText: 'Source type'),
+                            items: const [
+                              'speech',
+                              'singing',
+                              'humming',
+                              'solo_instrument',
+                              'mixed_music',
+                              'environmental_sound',
+                              'beatboxing',
+                              'unknown'
+                            ]
+                                .map((value) => DropdownMenuItem(
+                                    value: value,
+                                    child: Text(value.replaceAll('_', ' '))))
+                                .toList(),
+                            onChanged: (value) =>
+                                setDialogState(() => source = value!)),
+                        const SizedBox(height: 12),
+                        ...const [
+                          'transcribe_lyrics',
+                          'extract_melody',
+                          'use_as_vocal_performance',
+                          'use_as_instrument_performance',
+                          'use_as_style_reference',
+                          'continue_recording',
+                          'ignore'
+                        ].map((value) => CheckboxListTile(
+                            value: uses.contains(value),
+                            title: Text(value.replaceAll('_', ' ')),
+                            onChanged: (checked) => setDialogState(() =>
+                                checked!
+                                    ? uses.add(value)
+                                    : uses.remove(value))))
+                      ]))),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: const Text('Cancel')),
+                    FilledButton(
+                        onPressed: () => Navigator.pop(context, true),
+                        child: const Text('Save'))
+                  ],
+                )));
+    if (accepted != true || !mounted) return;
+    setState(() => _saving = true);
+    try {
+      widget.onChanged(await widget.api
+          .correctInterpretation(widget.project, source, uses.toList()));
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final ready = project.stage == 'input_ready';
+    final project = widget.project;
+    final ready = ['input_ready', 'input_interpreted', 'awaiting_input_review']
+        .contains(project.stage);
     return Card(
         child: Padding(
             padding: const EdgeInsets.all(16),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(ready ? 'Input ready for analysis' : 'Draft saved',
                   style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
@@ -281,12 +497,34 @@ class _ProjectCard extends StatelessWidget {
               Text('State: ${project.stage}'),
               if (project.artifactCount > 0)
                 Text('${project.artifactCount} persisted artifacts'),
+              if (project.sourceType != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                    'Aria detected: ${project.sourceType!.replaceAll('_', ' ')}'),
+                Text('Review: ${project.reviewStatus?.replaceAll('_', ' ')}'),
+                if (project.suggestedUses.isNotEmpty)
+                  Text(
+                      'Suggested uses: ${project.suggestedUses.map((item) => item.replaceAll('_', ' ')).join(', ')}'),
+                if (project.warnings.isNotEmpty)
+                  Text('Check: ${project.warnings.join(', ')}',
+                      style: TextStyle(
+                          color: Theme.of(context).colorScheme.tertiary)),
+                const SizedBox(height: 8),
+                FilledButton.tonalIcon(
+                    onPressed: _saving ? null : _review,
+                    icon: const Icon(Icons.tune),
+                    label: Text(_saving
+                        ? 'Saving…'
+                        : project.reviewStatus == 'needs_review'
+                            ? 'Review input'
+                            : 'Edit interpretation')),
+              ],
               const SizedBox(height: 8),
               Text(ready
                   ? 'Phase 2 will add acoustic analysis and input interpretation.'
                   : 'Attach media when you are ready to prepare an analysis input.'),
               TextButton.icon(
-                  onPressed: onRefresh,
+                  onPressed: widget.onRefresh,
                   icon: const Icon(Icons.refresh),
                   label: const Text('Refresh'))
             ])));

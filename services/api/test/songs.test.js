@@ -29,7 +29,7 @@ test('text-only song compatibility endpoint creates a persisted draft without an
 
 test('accepted media advances the persisted project to input_ready', async () => {
   const updates = [];
-  const ingestionResult = { manifestRef: 'projects/project/analysis/input-manifest.json' };
+  const ingestionResult = { manifestRef: 'artifact:input', inputId: 'input', workingArtifactId: 'working' };
   const ingestion = {
     ingest: async () => ingestionResult,
     publicResult: () => ({ manifestRef: ingestionResult.manifestRef }),
@@ -39,7 +39,8 @@ test('accepted media advances the persisted project to input_ready', async () =>
     getProject: async () => undefined,
     updateProjectState: async (...args) => updates.push(args),
   };
-  const controller = new SongsController(ingestion, new SongBriefService(), projects);
+  const analysis = { analyze: async () => null };
+  const controller = new SongsController(ingestion, new SongBriefService(), projects, analysis);
   const response = await controller.createSong(
     { idea: 'Interpret this humming', media_purpose: 'voice' },
     { path: '/tmp/already-managed-upload' },

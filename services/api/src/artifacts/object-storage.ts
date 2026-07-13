@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { createReadStream } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { config } from '../config';
 import type { ArtifactNamespace } from './artifact.contracts';
 
@@ -15,6 +17,11 @@ export abstract class ObjectStorage {
   abstract signUpload(objectKey: string, contentType: string, expiresInSeconds?: number): Promise<SignedObjectUrl>;
   abstract signDownload(objectKey: string, expiresInSeconds?: number): Promise<SignedObjectUrl>;
   abstract exists(objectKey: string): Promise<boolean>;
+  abstract putFile(objectKey: string, filePath: string, contentType: string): Promise<void>;
+  abstract putBytes(objectKey: string, body: Uint8Array, contentType: string): Promise<void>;
+  abstract signInternalDownload(objectKey: string, expiresInSeconds?: number): Promise<SignedObjectUrl>;
+  abstract signInternalUpload(objectKey: string, contentType: string, expiresInSeconds?: number): Promise<SignedObjectUrl>;
+  abstract checksumAndSize(objectKey: string): Promise<{ checksumSha256: string; fileSize: number }>;
 }
 
 function safeSegment(value: string, label: string): string {
@@ -79,6 +86,35 @@ export class S3ObjectStorage implements ObjectStorage {
       if (status === 404) return false;
       throw error;
     }
+  }
+
+  async putFile(objectKey: string, filePath: string, contentType: string): Promise<void> {
+    await this.client.send(new PutObjectCommand({ Bucket: config.objectStorage.bucket, Key: objectKey, Body: createReadStream(filePath), ContentType: contentType }));
+  }
+
+  async putBytes(objectKey: string, body: Uint8Array, contentType: string): Promise<void> {
+    await this.client.send(new PutObjectCommand({ Bucket: config.objectStorage.bucket, Key: objectKey, Body: body, ContentType: contentType }));
+  }
+
+  async signInternalDownload(objectKey: string, expiresInSeconds = config.objectStorage.signedUrlTtlSeconds): Promise<SignedObjectUrl> {
+    const ttl = this.ttl(expiresInSeconds);
+    const url = await getSignedUrl(this.client, new GetObjectCommand({ Bucket: config.objectStorage.bucket, Key: objectKey }), { expiresIn: ttl });
+    return { method: 'GET', url, expiresAt: new Date(Date.now() + ttl * 1000).toISOString(), headers: {} };
+  }
+
+  async signInternalUpload(objectKey: string, contentType: string, expiresInSeconds = config.objectStorage.signedUrlTtlSeconds): Promise<SignedObjectUrl> {
+    const ttl = this.ttl(expiresInSeconds);
+    const url = await getSignedUrl(this.client, new PutObjectCommand({ Bucket: config.objectStorage.bucket, Key: objectKey, ContentType: contentType }), { expiresIn: ttl });
+    return { method: 'PUT', url, expiresAt: new Date(Date.now() + ttl * 1000).toISOString(), headers: { 'content-type': contentType } };
+  }
+
+  async checksumAndSize(objectKey: string): Promise<{ checksumSha256: string; fileSize: number }> {
+    const response = await this.client.send(new GetObjectCommand({ Bucket: config.objectStorage.bucket, Key: objectKey }));
+    if (!response.Body) throw new Error('Object has no body');
+    const hash = createHash('sha256');
+    let fileSize = 0;
+    for await (const chunk of response.Body as AsyncIterable<Uint8Array>) { hash.update(chunk); fileSize += chunk.byteLength; }
+    return { checksumSha256: hash.digest('hex'), fileSize };
   }
 
   private ttl(value: number): number {

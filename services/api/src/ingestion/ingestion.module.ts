@@ -8,8 +8,10 @@ import { NormalizerService } from './normalizer.service';
 import { QualityService } from './quality.service';
 import { ManifestService } from './manifest.service';
 import { NoopUploadScanner, UploadScanner } from './upload-scanner.service';
+import { ArtifactsModule } from '../artifacts/artifacts.module';
 
 @Module({
+  imports: [ArtifactsModule],
   providers: [
     IngestionService,
     MediaPolicyService,

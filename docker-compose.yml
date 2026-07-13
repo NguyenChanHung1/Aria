@@ -75,13 +75,28 @@ services:
       OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-aria-minio-development}
       OBJECT_STORAGE_FORCE_PATH_STYLE: "true"
       OBJECT_STORAGE_SIGNED_URL_TTL_SECONDS: ${OBJECT_STORAGE_SIGNED_URL_TTL_SECONDS:-900}
+      ANALYSIS_ENABLED: ${ANALYSIS_ENABLED:-true}
+      ANALYSIS_WORKER_URL: http://analysis:8020
+      ANALYSIS_TIMEOUT_MS: ${ANALYSIS_TIMEOUT_MS:-300000}
+      ANALYSIS_MANDATORY_REVIEW: ${ANALYSIS_MANDATORY_REVIEW:-false}
     depends_on:
       postgres:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
+      analysis:
+        condition: service_healthy
     volumes:
       - song_outputs:/app/outputs
+
+  analysis:
+    build:
+      context: ./services/analysis
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8020/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
 
 volumes:
   postgres_data:

@@ -1,6 +1,6 @@
 # Aria
 
-Aria is an artifact-first foundation for multimodal song production. The current repository accepts text briefs and optional audio/video inputs, preserves and normalizes uploaded media, and stores versioned project/artifact metadata. Acoustic analysis and input interpretation are the next implementation phase.
+Aria is an artifact-first foundation for multimodal song production. It accepts text briefs and optional audio/video inputs, preserves and normalizes media, measures acoustic properties, extracts frozen YAMNet embeddings, classifies the input, and pauses for an explicit user confirmation or correction when the interpretation is uncertain.
 
 ## Current architecture
 
@@ -11,7 +11,8 @@ aria/
 ├── infrastructure/
 │   └── minio/                  # Local object-storage TLS assets
 ├── services/
-│   └── api/                    # NestJS ingestion, projects, artifacts, and health
+│   ├── api/                    # NestJS ingestion, artifacts, analysis coordination, and review
+│   └── analysis/               # Pinned Python DSP and YAMNet inference worker
 ├── docker-compose.yml
 └── README.md
 ```
@@ -22,6 +23,8 @@ flowchart LR
     API --> FFmpeg[FFprobe and FFmpeg]
     API --> Postgres[(PostgreSQL metadata)]
     API --> MinIO[(MinIO artifacts)]
+    API --> Analysis[Python analysis worker]
+    Analysis --> MinIO
     FFmpeg --> Workspace[Local ingestion workspace]
 ```
 
@@ -31,8 +34,9 @@ The earlier LangGraph agent and placeholder lyrics, composition, and mixing micr
 
 | Layer | Choice | Current responsibility |
 |-------|--------|------------------------|
-| Mobile | Flutter | Create a brief, upload media, and inspect project/input readiness |
-| Public API | NestJS + TypeScript | Validate requests, ingest media, and expose projects/artifacts |
+| Mobile | Flutter | Create a brief, upload media, and confirm/correct the input interpretation |
+| Public API | NestJS + TypeScript | Ingest media, coordinate verified analysis, version interpretations, and expose projects/artifacts |
+| Analysis worker | Python, SciPy, TensorFlow | Deterministic acoustic features, YAMNet segment embeddings, and AudioSet-assisted baseline classification |
 | Media tools | FFprobe + FFmpeg | Inspect, extract, measure, and normalize accepted media |
 | Metadata | PostgreSQL + Prisma | Projects, artifacts, versions, lineage, provenance, reviews, and edits |
 | Binary artifacts | MinIO / S3-compatible storage | Private immutable objects and signed upload/download URLs |
@@ -64,6 +68,7 @@ docker compose up --build
 | Service | Port | Role |
 |---------|------|------|
 | API | 8010 | Public project, ingestion, and artifact API |
+| Analysis | internal 8020 | DSP, frozen embedding, and classification worker |
 | PostgreSQL | 5432 | Project/artifact metadata and lineage |
 | MinIO | 9000 / 9001 | Private artifact objects / local administration console |
 
@@ -82,7 +87,7 @@ flutter run -d web-server --web-hostname 127.0.0.1 --web-port 3000 \
 
 For Android emulators, use `http://10.0.2.2:8010`; iOS simulators and desktop targets can use `http://localhost:8010`. Physical devices require the development machine's reachable LAN address.
 
-The client creates either a text-only `draft` project or an `input_ready` project after media passes ingestion and normalization. Song generation is intentionally unavailable until its later pipeline phases are implemented.
+The client creates either a text-only `draft` project or analyzes uploaded media. Ambiguous classification enters `awaiting_input_review`; confirmation or correction advances it to `input_interpreted`. Song generation is intentionally unavailable until its later pipeline phases are implemented.
 
 ## API overview
 
@@ -117,9 +122,28 @@ curl -X POST http://localhost:8010/songs \
   -F 'genre=pop'
 ```
 
-Use `media_purpose=voice` only for known isolated speech, singing, or humming. Use `mixture` for instrument recordings, mixes, and reference songs. Phase 2 will replace this coarse upload hint with acoustic classification and a correctable interpretation.
+Use `media_purpose=voice` only for known isolated speech, singing, or humming. Use `mixture` for instrument recordings, mixes, and reference songs. This hint selects the normalization channel profile; Phase 2 independently infers a correctable source type and likely uses.
 
-The response contains `project_id`, a `draft` or `input_ready` stage, a project summary, and the public input manifest when media was supplied.
+The response contains `project_id`, the project stage, a project summary, the public input manifest, and the active interpretation when media was supplied.
+
+### Review or correct an interpretation
+
+The public `inputId` is the input-manifest artifact ID returned by upload. Read the current version and correction options, then submit the version you reviewed:
+
+```bash
+curl http://localhost:8010/projects/{projectId}/inputs/{inputId}/interpretation
+
+curl -X PATCH http://localhost:8010/projects/{projectId}/inputs/{inputId}/interpretation \
+  -H 'Content-Type: application/json' \
+  -H 'x-editor-id: local-user' \
+  -d '{
+    "baseVersion": 1,
+    "sourceType": "humming",
+    "intendedUses": ["extract_melody", "continue_recording"]
+  }'
+```
+
+Each correction creates a new immutable `input-interpretation` artifact, appends an audit edit, and atomically advances the active head. A stale `baseVersion` returns `409 Conflict`. `x-editor-id` is only a local audit label; deployments with multiple users must add authentication and project authorization before exposure.
 
 ### Read project state
 
@@ -142,7 +166,7 @@ For each accepted upload, ingestion:
 2. preserves the source under an opaque identifier and SHA-256 checksum;
 3. records bounded FFprobe metadata and warnings;
 4. creates a 48 kHz, 24-bit working WAV—stereo for mixtures and mono for known isolated voice;
-5. writes an input manifest without exposing host filesystem paths.
+5. registers and uploads the original, working WAV, raw probe, and manifest as canonical versioned artifacts without exposing host filesystem paths.
 
 Unsupported, malformed, no-audio, silence-only, excessive-duration, oversized, and excessively clipped uploads return structured 4xx errors with stable codes.
 
@@ -162,6 +186,23 @@ Unsupported, malformed, no-audio, silence-only, excessive-duration, oversized, a
 | `MEDIA_MAX_CLIPPING_RATIO` | `0.01` | Estimated clipped-sample ratio that rejects an upload |
 
 The default upload scanner is a replaceable no-op provider. Production deployments must supply a malware/content-scanning implementation.
+
+## Phase 2 analysis
+
+The API sends only the immutable 48 kHz working WAV to the internal worker through short-lived MinIO URLs. The worker produces three separate verified artifacts:
+
+- `acoustic.json` with level, loudness, clipping, silence, SNR, tempo candidates, channel correlation, and bounded spectral/MFCC summaries;
+- `embeddings.npz` with timestamped 1024-dimensional YAMNet segment vectors plus file-level mean and standard deviation;
+- `classification.json` with ranked source and music-scope candidates, model/weight/preprocessing provenance, warnings, and a review recommendation.
+
+YAMNet is a frozen pretrained AudioSet encoder, not a model trained on user uploads. The current classifier is an explicitly versioned AudioSet-score/rule baseline and abstains to `unknown`/`needs_review` when confidence or acoustic evidence is insufficient. User corrections change only the interpretation artifact; measurements, embeddings, and classification remain immutable. Embeddings are canonical in object storage and are not returned by the public API.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `ANALYSIS_ENABLED` | `false` outside Compose, `true` in Compose | Enable synchronous Phase 2 analysis |
+| `ANALYSIS_WORKER_URL` | `http://analysis:8020` | Internal worker base URL |
+| `ANALYSIS_TIMEOUT_MS` | `300000` | End-to-end worker request timeout |
+| `ANALYSIS_MANDATORY_REVIEW` | `false` | Force review even when the baseline recommends auto-accept |
 
 ## Artifact storage
 
@@ -215,7 +256,7 @@ node dist/main.js
 
 ## Next phase
 
-Phase 2 adds deterministic acoustic measurements, frozen-model audio embeddings, calibrated input classification, immutable interpretation artifacts, and explicit user confirmation/correction. See `plan/phase-2-input-interpretation.md` in a local planning workspace.
+Phase 3 can consume only an approved interpretation and add source separation, transcription, melody, beat, key, chord, and structure analysis. Training and calibrating a project-specific classifier remains a data/evaluation workstream; the shipped Phase 2 baseline does not claim calibration it has not earned.
 
 ## License
 
