@@ -26,6 +26,7 @@ outputs/
 .idea/
 .vscode/
 *.swp
+*.codex/
 
 # OS
 .DS_Store
