@@ -40,7 +40,7 @@ The earlier LangGraph agent and placeholder lyrics, composition, and mixing micr
 | Media tools | FFprobe + FFmpeg | Inspect, extract, measure, and normalize accepted media |
 | Metadata | PostgreSQL + Prisma | Projects, artifacts, versions, lineage, provenance, reviews, and edits |
 | Binary artifacts | MinIO / S3-compatible storage | Private immutable objects and signed upload/download URLs |
-| Local deployment | Docker Compose | API, PostgreSQL, MinIO, and bucket initialization |
+| Local deployment | Docker Compose | API, analysis worker, PostgreSQL, MinIO, and bucket initialization |
 
 ## Quick start
 
@@ -74,18 +74,38 @@ docker compose up --build
 
 The API container applies pending Prisma migrations before startup. `minio-init` creates the private `aria-artifacts` bucket after MinIO becomes healthy.
 
-### 3. Run the Flutter client
+### 3. Run the Flutter mobile app
 
-For a browser preview:
+Install the mobile dependencies and list the available Android or iOS devices:
 
 ```bash
 cd apps/mobile
 flutter pub get
-flutter run -d web-server --web-hostname 127.0.0.1 --web-port 3000 \
+flutter devices
+```
+
+Run on an Android emulator, using Android's host-machine alias for the API:
+
+```bash
+flutter run -d <android-device-id> \
+  --dart-define=ARIA_API_URL=http://10.0.2.2:8010
+```
+
+Run on an iOS Simulator:
+
+```bash
+flutter run -d <ios-simulator-id> \
   --dart-define=ARIA_API_URL=http://localhost:8010
 ```
 
-For Android emulators, use `http://10.0.2.2:8010`; iOS simulators and desktop targets can use `http://localhost:8010`. Physical devices require the development machine's reachable LAN address.
+For a physical Android or iOS device, connect the device to the development machine and use the machine's reachable LAN address:
+
+```bash
+flutter run -d <device-id> \
+  --dart-define=ARIA_API_URL=http://<development-machine-lan-ip>:8010
+```
+
+The backend must remain running while the app is in use. For a physical device, the device and development machine must be on the same network, and local firewall rules must allow access to port `8010`.
 
 The client creates either a text-only `draft` project or analyzes uploaded media. Ambiguous classification enters `awaiting_input_review`; confirmation or correction advances it to `input_interpreted`. Song generation is intentionally unavailable until its later pipeline phases are implemented.
 
