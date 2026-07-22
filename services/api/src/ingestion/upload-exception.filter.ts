@@ -9,10 +9,10 @@ export class UploadExceptionFilter implements ExceptionFilter {
     const oversized = exception.code === 'LIMIT_FILE_SIZE';
     const status = oversized ? HttpStatus.PAYLOAD_TOO_LARGE : HttpStatus.BAD_REQUEST;
     response.status(status).json({
-      statusCode: status,
-      error: oversized ? 'Payload Too Large' : 'Bad Request',
-      code: oversized ? 'UPLOAD_TOO_LARGE' : 'INVALID_MULTIPART_UPLOAD',
-      message: oversized ? 'The uploaded file exceeds the configured size limit' : 'The multipart upload is invalid',
+      error: {
+        code: oversized ? 'UPLOAD_TOO_LARGE' : 'INVALID_MULTIPART_UPLOAD',
+        message: oversized ? 'The uploaded file exceeds the configured size limit' : 'The multipart upload is invalid',
+      },
     });
   }
 }

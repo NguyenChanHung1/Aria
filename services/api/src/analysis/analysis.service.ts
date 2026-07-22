@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException, 
 import { ArtifactNamespace, ArtifactType, DependencyKind, Prisma, RetentionClass } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { ArtifactRepository } from '../artifacts/artifact.repository';
+import { InvalidationService } from '../artifacts/invalidation.service';
 import { ObjectStorage } from '../artifacts/object-storage';
 import { config } from '../config';
 import { ANALYSIS_SCHEMA_VERSION, INTENDED_USES, InputClassification, InputInterpretation, IntendedUse, MUSIC_SCOPES, SOURCE_TYPES, SourceType, WorkerResult } from './analysis.contracts';
@@ -9,7 +10,12 @@ import { InterpretationRepository } from './interpretation.repository';
 
 @Injectable()
 export class AnalysisService {
-  constructor(private readonly artifacts: ArtifactRepository, private readonly objects: ObjectStorage, private readonly interpretations: InterpretationRepository) {}
+  constructor(
+    private readonly artifacts: ArtifactRepository,
+    private readonly objects: ObjectStorage,
+    private readonly interpretations: InterpretationRepository,
+    private readonly invalidation: InvalidationService,
+  ) {}
 
   async analyze(projectId: string, inputId: string, workingArtifactId: string): Promise<InputInterpretation | null> {
     if (!config.analysis.enabled) return null;
@@ -59,13 +65,19 @@ export class AnalysisService {
     const head = await this.interpretations.get(projectId, inputId);
     const interpretation = head.activeArtifact.payload as unknown as InputInterpretation;
     const classification = await this.artifacts.getArtifact(interpretation.classificationArtifactId);
-    return { interpretation, candidates: (classification?.payload as unknown as InputClassification | undefined)?.sourceType ?? [], correctionOptions: { sourceTypes: SOURCE_TYPES, musicScopes: MUSIC_SCOPES, intendedUses: INTENDED_USES } };
+    const classificationPayload = classification?.payload as unknown as InputClassification | undefined;
+    return {
+      interpretation,
+      candidates: classificationPayload?.sourceType ?? [],
+      evidenceSummary: this.evidenceSummary(classificationPayload),
+      correctionOptions: { sourceTypes: SOURCE_TYPES, musicScopes: MUSIC_SCOPES, intendedUses: INTENDED_USES },
+    };
   }
 
   async correct(projectId: string, inputId: string, body: Record<string, unknown>, editorId: string) {
-    if (!Number.isInteger(body.baseVersion)) throw new BadRequestException('baseVersion must be an integer');
+    if (!Number.isInteger(body.baseVersion)) throw new BadRequestException({ code: 'INVALID_INTERPRETATION', message: 'baseVersion must be an integer' });
     const currentHead = await this.interpretations.get(projectId, inputId);
-    if (currentHead.version !== body.baseVersion) throw new ConflictException('Interpretation has changed; refresh and retry');
+    if (currentHead.version !== body.baseVersion) throw new ConflictException({ code: 'INTERPRETATION_CONFLICT', message: 'Interpretation has changed; refresh and retry' });
     const current = currentHead.activeArtifact.payload as unknown as InputInterpretation;
     const sourceType = body.sourceType === undefined ? current.sourceType : this.enumValue(body.sourceType, SOURCE_TYPES, 'sourceType');
     const musicScope = body.musicScope === undefined ? current.musicScope : this.enumValue(body.musicScope, MUSIC_SCOPES, 'musicScope');
@@ -74,8 +86,10 @@ export class AnalysisService {
     const next: InputInterpretation = { ...current, version: current.version + 1, sourceType, musicScope, intendedUses, suggestedUses: this.suggestions(sourceType), origins: { sourceType: body.sourceType === undefined ? current.origins.sourceType : 'user', musicScope: body.musicScope === undefined ? current.origins.musicScope : 'user', intendedUses: body.intendedUses === undefined ? current.origins.intendedUses : 'user' }, reviewStatus: changed ? 'user_corrected' : 'user_confirmed', actor: editorId, createdAt: new Date().toISOString(), warnings: this.compatibilityWarnings(sourceType, intendedUses) };
     const artifact = await this.writeInterpretation(projectId, inputId, current.classificationArtifactId, next);
     await this.interpretations.advance({ projectId, inputId, baseVersion: body.baseVersion as number, artifactId: artifact.id, editorId, patch: body as Prisma.InputJsonObject, ...(typeof body.note === 'string' && body.note.trim() ? { summary: body.note.trim().slice(0, 500) } : {}) });
+    const staleArtifactIds = changed ? await this.invalidation.markStaleDependents(projectId, currentHead.activeArtifactId) : [];
     await this.interpretations.markProjectInterpreted(projectId, next.version);
-    return this.get(projectId, inputId);
+    const response = await this.get(projectId, inputId);
+    return { ...response, staleArtifactIds };
   }
 
   history(projectId: string, inputId: string) { return this.interpretations.history(projectId, inputId); }
@@ -98,8 +112,19 @@ export class AnalysisService {
     return artifact;
   }
 
-  private enumValue<T extends string>(value: unknown, allowed: readonly T[], field: string): T { if (typeof value !== 'string' || !allowed.includes(value as T)) throw new BadRequestException(`Unsupported ${field}`); return value as T; }
-  private useValues(value: unknown): IntendedUse[] { if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || !INTENDED_USES.includes(item as IntendedUse))) throw new BadRequestException('intendedUses contains an unsupported value'); return [...new Set(value as IntendedUse[])]; }
+  private enumValue<T extends string>(value: unknown, allowed: readonly T[], field: string): T { if (typeof value !== 'string' || !allowed.includes(value as T)) throw new BadRequestException({ code: 'INVALID_INTERPRETATION', message: `Unsupported ${field}` }); return value as T; }
+  private useValues(value: unknown): IntendedUse[] { if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || !INTENDED_USES.includes(item as IntendedUse))) throw new BadRequestException({ code: 'INVALID_INTERPRETATION', message: 'intendedUses contains an unsupported value' }); return [...new Set(value as IntendedUse[])]; }
+  private evidenceSummary(classification?: InputClassification) {
+    if (!classification) return { topSourceType: null, topSourceProbability: null, reviewRecommendation: null, warningCount: 0, conflictCount: 0 };
+    const top = classification.sourceType[0];
+    return {
+      topSourceType: top?.value ?? null,
+      topSourceProbability: top?.probability ?? null,
+      reviewRecommendation: classification.reviewRecommendation ?? null,
+      warningCount: classification.warnings?.length ?? 0,
+      conflictCount: classification.conflicts?.length ?? 0,
+    };
+  }
   private suggestions(source: SourceType): Array<{ value: IntendedUse; reason: string }> { const map: Partial<Record<SourceType, IntendedUse[]>> = { speech: ['transcribe_lyrics'], singing: ['transcribe_lyrics', 'extract_melody', 'use_as_vocal_performance'], humming: ['extract_melody', 'continue_recording'], solo_instrument: ['extract_melody', 'use_as_instrument_performance'], mixed_music: ['use_as_style_reference'], beatboxing: ['use_as_vocal_performance'] }; return (map[source] ?? []).map((value) => ({ value, reason: `Suggested for detected ${source.replaceAll('_', ' ')}` })); }
   private compatibilityWarnings(source: SourceType, uses: IntendedUse[]): string[] { const warnings: string[] = []; if (uses.includes('use_as_vocal_performance') && !['singing', 'beatboxing', 'speech'].includes(source)) warnings.push('vocal_use_may_not_match_source'); if (uses.includes('use_as_instrument_performance') && source !== 'solo_instrument') warnings.push('instrument_use_may_not_match_source'); return warnings; }
 }

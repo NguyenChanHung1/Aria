@@ -109,6 +109,13 @@ test('repository versions deliverables independently and records lineage', async
   await assert.rejects(() => repository.protectivelyDelete(lyricsV2.id), /active descendants/);
 });
 
+test('NFR-002 signed URL lifetime must stay within 60 and 3600 seconds', async () => {
+  const { S3ObjectStorage } = require('../dist/artifacts/object-storage');
+  const storage = new S3ObjectStorage();
+  await assert.rejects(() => storage.signUpload('projects/p/originals/a/input.wav', 'audio/wav', 30));
+  await assert.rejects(() => storage.signUpload('projects/p/originals/a/input.wav', 'audio/wav', 5000));
+});
+
 test('signed URL contract returns no host filesystem paths', async () => {
   const previous = config.objectStorage.publicEndpoint;
   config.objectStorage.publicEndpoint = 'http://localhost:9000';

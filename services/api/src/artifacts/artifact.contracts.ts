@@ -43,6 +43,7 @@ export type ArtifactType =
   | 'source_media'
   | 'normalized_audio'
   | 'analysis'
+  | 'audio_understanding'
   | 'preview';
 
 export interface Project {

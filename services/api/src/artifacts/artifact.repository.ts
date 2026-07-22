@@ -143,6 +143,104 @@ export class ArtifactRepository {
     return this.prisma.artifact.findUnique({ where: { id } });
   }
 
+  async listArtifacts(projectId: string, input: { cursor?: string; limit?: number }) {
+    const limit = Math.min(Math.max(input.limit ?? 50, 1), 100);
+    const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { id: true } });
+    if (!project) throw new NotFoundException('Project not found');
+    const cursorParts = input.cursor?.split('|') ?? [];
+    const cursorDate = cursorParts[0] ? new Date(cursorParts[0]) : undefined;
+    const cursorId = cursorParts[1];
+    const artifacts = await this.prisma.artifact.findMany({
+      where: {
+        projectId,
+        ...(cursorDate && cursorId ? { OR: [{ createdAt: { gt: cursorDate } }, { createdAt: cursorDate, id: { gt: cursorId } }] } : {}),
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: limit + 1,
+    });
+    const hasMore = artifacts.length > limit;
+    const items = hasMore ? artifacts.slice(0, limit) : artifacts;
+    const last = items.at(-1);
+    return {
+      items,
+      nextCursor: hasMore && last ? `${last.createdAt.toISOString()}|${last.id}` : null,
+    };
+  }
+
+  getDirectDependencies(artifactId: string) {
+    return this.prisma.artifactDependency.findMany({
+      where: { artifactId },
+      select: { dependsOnId: true, kind: true, dependsOn: { select: { id: true, type: true, logicalName: true, version: true, status: true } } },
+    }).then((rows) => rows.map((row) => ({
+      artifactId: row.dependsOn.id,
+      kind: row.kind,
+      type: row.dependsOn.type,
+      logicalName: row.dependsOn.logicalName,
+      version: row.dependsOn.version,
+      status: row.dependsOn.status,
+    })));
+  }
+
+  getDirectDependents(artifactId: string) {
+    return this.prisma.artifactDependency.findMany({
+      where: { dependsOnId: artifactId },
+      select: { artifactId: true, kind: true, artifact: { select: { id: true, type: true, logicalName: true, version: true, status: true } } },
+    }).then((rows) => rows.map((row) => ({
+      artifactId: row.artifact.id,
+      kind: row.kind,
+      type: row.artifact.type,
+      logicalName: row.artifact.logicalName,
+      version: row.artifact.version,
+      status: row.artifact.status,
+    })));
+  }
+
+  async collectDependents(projectId: string, rootArtifactId: string): Promise<string[]> {
+    const seen = new Set<string>();
+    const queue = [rootArtifactId];
+    const stale: string[] = [];
+    while (queue.length) {
+      const current = queue.shift()!;
+      if (seen.has(current)) continue;
+      seen.add(current);
+      const dependents = await this.prisma.artifactDependency.findMany({
+        where: { dependsOnId: current, artifact: { projectId } },
+        select: { artifactId: true },
+      });
+      for (const dependent of dependents) {
+        if (!seen.has(dependent.artifactId)) {
+          stale.push(dependent.artifactId);
+          queue.push(dependent.artifactId);
+        }
+      }
+      const children = await this.prisma.artifact.findMany({
+        where: { parentArtifactId: current, projectId },
+        select: { id: true },
+      });
+      for (const child of children) {
+        if (!seen.has(child.id)) {
+          stale.push(child.id);
+          queue.push(child.id);
+        }
+      }
+    }
+    return [...new Set(stale)];
+  }
+
+  markSuperseded(id: string) {
+    return this.prisma.artifact.updateMany({
+      where: { id, status: { in: [ArtifactStatus.AVAILABLE, ArtifactStatus.PENDING, ArtifactStatus.PROCESSING, ArtifactStatus.FAILED] } },
+      data: { status: ArtifactStatus.SUPERSEDED },
+    });
+  }
+
+  findLatestAvailable(projectId: string, logicalName: string) {
+    return this.prisma.artifact.findFirst({
+      where: { projectId, logicalName, status: ArtifactStatus.AVAILABLE },
+      orderBy: { version: 'desc' },
+    });
+  }
+
   markFailed(id: string, payload: Prisma.InputJsonObject = {}) {
     return this.prisma.artifact.update({ where: { id }, data: { status: ArtifactStatus.FAILED, payload } });
   }

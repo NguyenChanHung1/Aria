@@ -274,9 +274,34 @@ npm run build
 node dist/main.js
 ```
 
+## Input intelligence sprint (FR-001 – FR-007)
+
+The input intelligence milestone is implemented across the API and mobile client:
+
+- **Canonical projects:** `POST /projects` accepts the structured brief (including optional `audience` and `deliverables`).
+- **Compatibility:** `POST /songs` still creates projects with optional media upload and analysis.
+- **Text/lyrics inputs:** `POST /projects/{projectId}/inputs` registers inline text or lyrics as an input manifest.
+- **Artifacts:** `GET /projects/{projectId}/artifacts` lists artifacts with cursor pagination; `GET .../artifacts/{artifactId}/lineage` returns lineage summaries.
+- **Interpretation:** responses include `evidenceSummary`; corrections return `staleArtifactIds` when taxonomy changes invalidate dependents.
+- **Mobile:** text-only create uses `/projects`; resume-by-ID, audience field, and interpretation confidence display are available on the home screen.
+
+Detailed plan: [plans/input-intelligence-sprint/implementation-plan.md](plans/input-intelligence-sprint/implementation-plan.md)
+
+## Musical understanding sprint (FR-008 – FR-009)
+
+Phase 3 musical understanding is implemented across the API, analysis worker, and mobile client:
+
+- **Generation:** `POST /projects/{projectId}/audio-understanding` returns `202 Accepted` with a minimal `WorkflowRun`; requires an approved interpretation.
+- **Retrieval:** `GET /projects/{projectId}/audio-understanding` returns a structured summary, stale flag, and signed download URL for the full JSON payload.
+- **Workflow poll:** `GET /projects/{projectId}/workflow-runs/{runId}` exposes run status (`running`, `succeeded`, `partial`, `failed`).
+- **Worker:** `POST /understand` fuses timing, structure, harmony, timbre, texture, and semantic modules; separation and transcription abstain in the MVP CPU baseline.
+- **Mobile:** "Analyze music" after interpretation approval; summary shows tempo, key, sections, and semantic tags.
+
+Detailed plan: [plans/musical-understanding-sprint/implementation-plan.md](plans/musical-understanding-sprint/implementation-plan.md)
+
 ## Next phase
 
-Phase 3 can consume only an approved interpretation and add source separation, transcription, melody, beat, key, chord, and structure analysis. Training and calibrating a project-specific classifier remains a data/evaluation workstream; the shipped Phase 2 baseline does not claim calibration it has not earned.
+Phase 4 can consume approved AudioUnderstanding artifacts to resolve requirements and propose creative directions (FR-010+). Training and calibrating a project-specific classifier remains a data/evaluation workstream; the shipped Phase 2 baseline does not claim calibration it has not earned.
 
 ## License
 

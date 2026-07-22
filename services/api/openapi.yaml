@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Aria NestJS API
-  version: 0.5.0
-  description: Public project API with multimodal ingestion, acoustic analysis, learned embeddings, and correctable input interpretation.
+  version: 0.7.0
+  description: Public project API with multimodal ingestion, acoustic analysis, musical understanding, and correctable input interpretation.
 servers:
   - url: http://localhost:8010
 paths:
@@ -50,16 +50,18 @@ paths:
         '404': { description: Project not found }
   /projects:
     post:
-      summary: Create a Prisma-backed project metadata record
+      summary: Create a project with a structured brief
       requestBody:
+        required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                title: { type: string }
+              $ref: '#/components/schemas/SongFields'
       responses:
-        '201': { description: Versioned project record }
+        '201':
+          description: Canonical project record with brief metadata
+        '400':
+          $ref: '#/components/responses/IngestionError'
   /projects/{projectId}:
     get:
       summary: Get a project and its artifact metadata
@@ -134,6 +136,56 @@ paths:
         - $ref: '#/components/parameters/InputId'
       responses:
         '200': { description: Ordered interpretation history }
+  /projects/{projectId}/audio-understanding:
+    post:
+      summary: Start fused musical understanding generation for an approved input interpretation
+      parameters:
+        - $ref: '#/components/parameters/ArtifactProjectId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                inputId: { type: string, format: uuid }
+                force: { type: boolean, default: false }
+      responses:
+        '202': { description: WorkflowRun accepted for async generation }
+        '200': { description: Existing understanding reused for current interpretation }
+        '409': { description: Interpretation not approved }
+        '404': { description: Project or input not found }
+    get:
+      summary: Read the active AudioUnderstanding summary for the project primary input
+      parameters:
+        - $ref: '#/components/parameters/ArtifactProjectId'
+      responses:
+        '200': { description: AudioUnderstanding summary with optional download URL }
+        '404': { description: Audio understanding not found }
+  /projects/{projectId}/audio-understanding/{artifactId}:
+    get:
+      summary: Read a specific AudioUnderstanding artifact version summary
+      parameters:
+        - $ref: '#/components/parameters/ArtifactProjectId'
+        - name: artifactId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: AudioUnderstanding summary with optional download URL }
+        '404': { description: Audio understanding not found }
+  /projects/{projectId}/workflow-runs/{runId}:
+    get:
+      summary: Poll a minimal workflow run for async musical understanding
+      parameters:
+        - $ref: '#/components/parameters/ArtifactProjectId'
+        - name: runId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: WorkflowRun status and progress }
+        '404': { description: Workflow run not found }
 components:
   parameters:
     ProjectId:
@@ -159,7 +211,7 @@ components:
       properties:
         artifactType:
           type: string
-          enum: [INPUT_MANIFEST, REQUIREMENTS, CREATIVE_BRIEF, SONG_BLUEPRINT, LYRICS, SYMBOLIC_SCORE, ARRANGEMENT, PERFORMANCE, STEM, MIX, MASTER, REVIEW, EXPORT, SOURCE_MEDIA, NORMALIZED_AUDIO, ANALYSIS, PREVIEW]
+          enum: [INPUT_MANIFEST, REQUIREMENTS, CREATIVE_BRIEF, SONG_BLUEPRINT, LYRICS, SYMBOLIC_SCORE, ARRANGEMENT, PERFORMANCE, STEM, MIX, MASTER, REVIEW, EXPORT, SOURCE_MEDIA, NORMALIZED_AUDIO, ANALYSIS, AUDIO_UNDERSTANDING, PREVIEW]
         namespace:
           type: string
           enum: [ORIGINALS, NORMALIZED_AUDIO, ANALYSIS, REQUIREMENTS, CREATIVE_DIRECTION, BLUEPRINTS, LYRICS, SCORES, ARRANGEMENTS, PERFORMANCES, STEMS, MIXES, MASTERS, REVIEWS, PREVIEWS, EXPORTS]
@@ -184,6 +236,11 @@ components:
         length: { type: string, enum: [short, medium, long] }
         vocal_style: { type: string, enum: [male, female, duet, instrumental] }
         language: { type: string, default: en }
+        audience: { type: string, maxLength: 500 }
+        deliverables:
+          type: array
+          maxItems: 10
+          items: { type: string, maxLength: 100 }
     InterpretationPatch:
       type: object
       required: [baseVersion]

@@ -29,6 +29,11 @@ export const config = {
     timeoutMs: Number(process.env.ANALYSIS_TIMEOUT_MS ?? 300_000),
     mandatoryReview: (process.env.ANALYSIS_MANDATORY_REVIEW ?? 'false') === 'true',
   },
+  understanding: {
+    enabled: (process.env.UNDERSTANDING_ENABLED ?? process.env.ANALYSIS_ENABLED ?? 'false') === 'true',
+    timeoutMs: Number(process.env.UNDERSTANDING_TIMEOUT_MS ?? 600_000),
+    optionalModules: (process.env.UNDERSTANDING_OPTIONAL_MODULES ?? 'separation,transcription').split(',').map((item) => item.trim()).filter(Boolean),
+  },
 };
 
 export async function ensureStorage(): Promise<void> {

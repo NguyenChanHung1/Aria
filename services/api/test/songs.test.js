@@ -2,7 +2,8 @@ const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const test = require('node:test');
 
-const { SongBriefService } = require('../dist/songs/song-brief.service');
+const { BriefService } = require('../dist/projects/brief.service');
+const { ProjectsService } = require('../dist/projects/projects.service');
 const { SongsController } = require('../dist/songs/songs.controller');
 
 function request() {
@@ -11,12 +12,13 @@ function request() {
 
 test('text-only song compatibility endpoint creates a persisted draft without an agent', async () => {
   const created = [];
-  const projects = {
-    createProject: async (input) => created.push(input),
+  const artifacts = {
+    createProject: async (input) => { created.push(input); return { id: input.id, schemaVersion: '1.0.0', status: 'DRAFT', title: input.title ?? null, metadata: input.metadata, createdAt: new Date(), updatedAt: new Date() }; },
     getProject: async () => undefined,
     updateProjectState: async () => undefined,
   };
-  const controller = new SongsController({}, new SongBriefService(), projects);
+  const projects = new ProjectsService(artifacts, new BriefService());
+  const controller = new SongsController({}, new BriefService(), projects, artifacts, { analyze: async () => null });
   const response = await controller.createSong({ idea: 'A quiet summer evening' }, undefined, request());
 
   assert.equal(response.stage, 'draft');
@@ -34,13 +36,14 @@ test('accepted media advances the persisted project to input_ready', async () =>
     ingest: async () => ingestionResult,
     publicResult: () => ({ manifestRef: ingestionResult.manifestRef }),
   };
-  const projects = {
-    createProject: async () => undefined,
+  const artifacts = {
+    createProject: async (input) => ({ id: input.id, schemaVersion: '1.0.0', status: 'DRAFT', title: null, metadata: input.metadata, createdAt: new Date(), updatedAt: new Date() }),
     getProject: async () => undefined,
     updateProjectState: async (...args) => updates.push(args),
   };
+  const projects = new ProjectsService(artifacts, new BriefService());
   const analysis = { analyze: async () => null };
-  const controller = new SongsController(ingestion, new SongBriefService(), projects, analysis);
+  const controller = new SongsController(ingestion, new BriefService(), projects, artifacts, analysis);
   const response = await controller.createSong(
     { idea: 'Interpret this humming', media_purpose: 'voice' },
     { path: '/tmp/already-managed-upload' },
@@ -56,19 +59,20 @@ test('accepted media advances the persisted project to input_ready', async () =>
 
 test('song compatibility read returns PostgreSQL project and artifact state', async () => {
   const now = new Date('2026-07-14T00:00:00Z');
-  const projects = {
-    createProject: async () => undefined,
-    updateProjectState: async () => undefined,
+  const artifacts = {
     getProject: async () => ({
       id: 'project-1',
+      schemaVersion: '1.0.0',
       status: 'ACTIVE',
-      metadata: { stage: 'input_ready', brief: { idea: 'Reference input' } },
-      artifacts: [{ id: 'artifact-1' }],
+      title: null,
+      metadata: { stage: 'input_ready', brief: { idea: 'Reference input', briefSchemaVersion: '1.1.0', mood: 'pop', genre: 'pop', length: 'medium', vocal_style: 'female', language: 'en', audience: null, deliverables: [] } },
+      artifacts: [{ id: 'artifact-1', fileSize: null, objectKey: 'hidden' }],
       createdAt: now,
       updatedAt: now,
     }),
   };
-  const controller = new SongsController({}, new SongBriefService(), projects);
+  const projects = new ProjectsService(artifacts, new BriefService());
+  const controller = new SongsController({}, new BriefService(), projects, artifacts, { analyze: async () => null });
   const response = await controller.getSong('project-1');
 
   assert.equal(response.project.stage, 'input_ready');
